@@ -129,16 +129,23 @@ class PostgresStore {
 
   async addAction(id: string, action: DrawAction): Promise<void> {
     await this.ensureReady();
-    const safe = stripLargeFields(action);
+    const { imageSrc, ...safe } = action as any;
     await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(safe)}, timestamp = ${action.timestamp}`;
+    // Fotografi ayri tabloya kaydet
+    if (imageSrc) {
+      await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO UPDATE SET data = ${imageSrc}`;
+    }
   }
 
   async setActions(id: string, newActions: DrawAction[]): Promise<void> {
     await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
     for (const action of newActions.slice(-5000)) {
-      const safe = stripLargeFields(action);
+      const { imageSrc, ...safe } = action as any;
       await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO NOTHING`;
+      if (imageSrc) {
+        await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
+      }
     }
   }
 
@@ -153,8 +160,24 @@ class PostgresStore {
     const deletedResult = since > 0
       ? await sql`SELECT id FROM deleted_ids WHERE whiteboard_id = ${id} AND deleted_at > ${since}`
       : { rows: [] as any[] };
+    // Action'lari yukle
+    const actions = rows.rows.map((r: any) => {
+      const parsed = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      return parsed;
+    });
+    // Fotograflari yukle (image type'li action'lar icin)
+    const imageIds = actions.filter((a: any) => a.type === 'image').map((a: any) => a.id + '_img');
+    if (imageIds.length > 0) {
+      const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id} AND id LIKE ${'%_img'}`;
+      const imgMap = new Map<string, string>();
+      for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
+      for (const action of actions) {
+        const imgData = imgMap.get(action.id + '_img');
+        if (imgData) { (action as any).imageSrc = imgData; }
+      }
+    }
     return {
-      actions: rows.rows.map((r: any) => typeof r.data === 'string' ? JSON.parse(r.data) : r.data),
+      actions,
       deletedIds: deletedResult.rows.map((r: any) => r.id),
     };
   }
@@ -162,6 +185,7 @@ class PostgresStore {
   async removeAction(id: string, actionId: string): Promise<void> {
     await this.ensureReady();
     await sql`DELETE FROM actions WHERE id = ${actionId} AND whiteboard_id = ${id}`;
+    await sql`DELETE FROM images WHERE id = ${actionId + '_img'}`;
     await sql`INSERT INTO deleted_ids (id, whiteboard_id, deleted_at) VALUES (${actionId}, ${id}, ${Date.now()}) ON CONFLICT DO NOTHING`;
   }
 

@@ -50,6 +50,16 @@ export async function ensureSchema() {
 
     await sql`CREATE INDEX IF NOT EXISTS idx_deleted_whiteboard ON deleted_ids(whiteboard_id, deleted_at)`;
 
+    // Fotograflar icin ayri tablo (buyuk base64 verisi)
+    await sql`
+      CREATE TABLE IF NOT EXISTS images (
+        id TEXT PRIMARY KEY,
+        whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+        data TEXT NOT NULL,
+        created_at BIGINT NOT NULL DEFAULT 0
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_images_whiteboard ON images(whiteboard_id)`;
+
     schemaReady = true;
   } catch (e) {
     console.error('Schema initialization failed:', e);

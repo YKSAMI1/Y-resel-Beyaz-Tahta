@@ -29,3 +29,12 @@
  ✓ Compiled in 328ms (140 modules)
  GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 571ms
  ✓ Compiled in 127ms (140 modules)
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 1152ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 440ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 206ms
+ ○ Compiling /tahta/[id] ...
+ ✓ Compiled /tahta/[id] in 3.4s (672 modules)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1344ms (1005 modules)
+ ✓ Compiled in 231ms (599 modules)
+ ✓ Compiled in 103ms (108 modules)
