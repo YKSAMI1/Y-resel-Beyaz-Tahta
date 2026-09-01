@@ -112,7 +112,6 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         const parsed = JSON.parse(saved) as DrawAction[];
         if (parsed.length > 0) {
           setActions(parsed);
-          setSyncedTimestamp(parsed[parsed.length - 1]?.timestamp || 0);
         }
       }
       const savedSettings = localStorage.getItem(`freeboard_settings_${id}`);
@@ -120,6 +119,21 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       const savedLayers = localStorage.getItem(`freeboard_layers_${id}`);
       if (savedLayers) setLayers(JSON.parse(savedLayers));
     } catch { /* ignore */ }
+    // Her durumda sunucudan tum veriyi yukle
+    const loadAll = async () => {
+      try {
+        const res = await fetch(`/api/whiteboard/${id}/actions?since=0`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.actions && data.actions.length > 0) {
+            setActions(data.actions);
+            const maxTs = Math.max(...data.actions.map((a: DrawAction) => a.timestamp));
+            setSyncedTimestamp(maxTs);
+          }
+        }
+      } catch { /* will retry on next poll */ }
+    };
+    loadAll();
   }, [id]);
 
   // ===== Save to localStorage (strip base64 images to avoid quota) =====
