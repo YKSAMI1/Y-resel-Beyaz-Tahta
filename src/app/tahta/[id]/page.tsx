@@ -245,6 +245,13 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, [syncActionToServer]);
 
   const handleDeleteAction = useCallback(async (actionId: string) => {
+    // Undo edilebilsin diye once redo stack'e ekle
+    const current = actionsRef.current;
+    const removed = current.find(a => a.id === actionId);
+    if (removed) {
+      setRedoStack([...redoRef.current, removed]);
+      pendingDeletesRef.current.add(actionId);
+    }
     setActions(prev => prev.filter(a => a.id !== actionId));
     try { await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' }); } catch { /* ignore */ }
   }, [id]);
