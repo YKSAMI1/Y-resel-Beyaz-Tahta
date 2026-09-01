@@ -277,10 +277,11 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       setActions(prev => prev.filter(a => a.id !== op.action.id));
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
     } else {
-      // Silme islemini geri al: action'ı geri ekle
+      // Silme islemini geri al: action'ı geri ekle (yeni timestamp ile)
       pendingDeletesRef.current.delete(op.action.id);
-      setActions(prev => [...prev, op.action]);
-      syncActionToServer(op.action);
+      const restored = { ...op.action, timestamp: Date.now() };
+      setActions(prev => [...prev, restored]);
+      syncActionToServer(restored);
       // Sunucudaki deleted_ids kaydini de temizle (poll tekrar silmesin)
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}?clearDeleted=true`, { method: 'DELETE' }).catch(() => {});
     }
@@ -293,9 +294,10 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     const op = stack.pop()!;
     undoStackRef.current.push(op);
     if (op.type === 'add') {
-      // Ekleme islemini tekrar yap
-      setActions(prev => [...prev, op.action]);
-      syncActionToServer(op.action);
+      // Ekleme islemini tekrar yap (yeni timestamp ile)
+      const restored = { ...op.action, timestamp: Date.now() };
+      setActions(prev => [...prev, restored]);
+      syncActionToServer(restored);
     } else {
       // Silme islemini tekrar yap
       pendingDeletesRef.current.add(op.action.id);
