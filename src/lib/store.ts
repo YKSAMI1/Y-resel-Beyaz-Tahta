@@ -81,6 +81,12 @@ class InMemoryStore {
   }
 }
 
+// Buyuk alanlari (base64 fotograflar) veritabanindan cikar
+function stripLargeFields(action: DrawAction): DrawAction {
+  const { imageSrc, fillBitmap, ...rest } = action as any;
+  return rest;
+}
+
 // ===== Neon PostgreSQL deposu =====
 class PostgresStore {
   private ready = false;
@@ -123,14 +129,16 @@ class PostgresStore {
 
   async addAction(id: string, action: DrawAction): Promise<void> {
     await this.ensureReady();
-    await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(action)}, timestamp = ${action.timestamp}`;
+    const safe = stripLargeFields(action);
+    await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(safe)}, timestamp = ${action.timestamp}`;
   }
 
   async setActions(id: string, newActions: DrawAction[]): Promise<void> {
     await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
     for (const action of newActions.slice(-5000)) {
-      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO NOTHING`;
+      const safe = stripLargeFields(action);
+      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO NOTHING`;
     }
   }
 
