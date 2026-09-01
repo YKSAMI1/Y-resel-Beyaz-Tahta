@@ -166,9 +166,8 @@ class PostgresStore {
       return parsed;
     });
     // Fotograflari yukle (image type'li action'lar icin)
-    const imageIds = actions.filter((a: any) => a.type === 'image').map((a: any) => a.id + '_img');
-    if (imageIds.length > 0) {
-      const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id} AND id LIKE ${'%_img'}`;
+    const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id}`;
+    if (imgRows.rows.length > 0) {
       const imgMap = new Map<string, string>();
       for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
       for (const action of actions) {
