@@ -67,6 +67,12 @@ class InMemoryStore {
     stored.deletedIds.push({ id: actionId, timestamp: Date.now() });
   }
 
+  async clearDeletedId(id: string, actionId: string): Promise<void> {
+    const stored = this.whiteboards.get(id);
+    if (!stored) return;
+    stored.deletedIds = stored.deletedIds.filter(d => d.id !== actionId);
+  }
+
   async updateSettings(id: string, settings: Partial<WhiteboardSettings>): Promise<Whiteboard | null> {
     const stored = this.whiteboards.get(id);
     if (!stored) return null;
@@ -186,6 +192,11 @@ class PostgresStore {
     await sql`DELETE FROM actions WHERE id = ${actionId} AND whiteboard_id = ${id}`;
     await sql`DELETE FROM images WHERE id = ${actionId + '_img'}`;
     await sql`INSERT INTO deleted_ids (id, whiteboard_id, deleted_at) VALUES (${actionId}, ${id}, ${Date.now()}) ON CONFLICT DO NOTHING`;
+  }
+
+  async clearDeletedId(id: string, actionId: string): Promise<void> {
+    await this.ensureReady();
+    await sql`DELETE FROM deleted_ids WHERE id = ${actionId} AND whiteboard_id = ${id}`;
   }
 
   async updateSettings(id: string, settings: Partial<WhiteboardSettings>): Promise<Whiteboard | null> {

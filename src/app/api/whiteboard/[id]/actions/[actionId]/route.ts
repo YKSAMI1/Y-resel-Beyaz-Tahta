@@ -13,7 +13,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Tahta bulunamadı.' }, { status: 404 });
     }
 
-    await whiteboardStore.removeAction(id, actionId);
+    const url = new URL(request.url);
+    const clearDeleted = url.searchParams.get('clearDeleted');
+    if (clearDeleted === 'true') {
+      // Geri alma islemi: deleted_ids kaydini temizle
+      await whiteboardStore.clearDeletedId(id, actionId);
+    } else {
+      await whiteboardStore.removeAction(id, actionId);
+    }
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'İşlem silinemedi.' }, { status: 500 });

@@ -281,6 +281,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       pendingDeletesRef.current.delete(op.action.id);
       setActions(prev => [...prev, op.action]);
       syncActionToServer(op.action);
+      // Sunucudaki deleted_ids kaydini de temizle (poll tekrar silmesin)
+      fetch(`/api/whiteboard/${id}/actions/${op.action.id}?clearDeleted=true`, { method: 'DELETE' }).catch(() => {});
     }
     pushUndoCount(); pushRedoCount();
   }, [id, syncActionToServer]);
