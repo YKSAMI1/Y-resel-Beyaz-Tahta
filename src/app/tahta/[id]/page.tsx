@@ -48,18 +48,21 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   ]);
   const [activeLayerId, setActiveLayerId] = useState('default');
 
-  // Actions / History (proper undo/redo with refs for reliability)
+  // Actions / History
   const [actions, setActions] = useState<DrawAction[]>([]);
-  const [redoStack, setRedoStack] = useState<DrawAction[]>([]);
   const actionsRef = useRef<DrawAction[]>([]);
-  const redoRef = useRef<DrawAction[]>([]);
   const pendingDeletesRef = useRef<Set<string>>(new Set());
   const [syncedTimestamp, setSyncedTimestamp] = useState(0);
-  // Unique client ID so undo only affects own actions
+  // Unique client ID
   const clientIdRef = useRef('client_' + Math.random().toString(36).substring(2, 10));
+  // Proper undo/redo stacks: { type: 'add'|'delete', action: DrawAction }
+  type UndoOp = { type: 'add'; action: DrawAction } | { type: 'delete'; action: DrawAction };
+  const undoStackRef = useRef<UndoOp[]>([]);
+  const redoStackRef = useRef<UndoOp[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
   // Keep refs in sync
   useEffect(() => { actionsRef.current = actions; }, [actions]);
-  useEffect(() => { redoRef.current = redoStack; }, [redoStack]);
 
   // Participants
   const [participants, setParticipants] = useState<Participant[]>([
@@ -238,52 +241,67 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     } catch { /* will retry on next poll */ }
   }, [id]);
 
+  const pushUndoCount = () => setUndoCount(undoStackRef.current.length);
+  const pushRedoCount = () => setRedoCount(redoStackRef.current.length);
+
   const handleAddAction = useCallback((action: DrawAction) => {
     setActions(prev => [...prev, action]);
-    setRedoStack([]); // Clear redo on new action
+    undoStackRef.current.push({ type: 'add', action });
+    redoStackRef.current = []; // Clear redo on new action
+    pushUndoCount(); pushRedoCount();
     syncActionToServer(action);
   }, [syncActionToServer]);
 
   const handleDeleteAction = useCallback(async (actionId: string) => {
-    // Undo edilebilsin diye once redo stack'e ekle
     const current = actionsRef.current;
     const removed = current.find(a => a.id === actionId);
-    if (removed) {
-      setRedoStack([...redoRef.current, removed]);
-      pendingDeletesRef.current.add(actionId);
+    if (removed && removed.userId === clientIdRef.current) {
+      // Sadece kendi islemlerini undo stack'e ekle
+      undoStackRef.current.push({ type: 'delete', action: removed });
+      redoStackRef.current = [];
+      pushUndoCount(); pushRedoCount();
     }
+    pendingDeletesRef.current.add(actionId);
     setActions(prev => prev.filter(a => a.id !== actionId));
     try { await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' }); } catch { /* ignore */ }
   }, [id]);
 
   const handleUndo = useCallback(() => {
-    const current = actionsRef.current;
-    if (current.length === 0) return;
-    // Only undo own actions (matching our clientId)
-    const myId = clientIdRef.current;
-    let lastOwnIdx = -1;
-    for (let i = current.length - 1; i >= 0; i--) {
-      if (current[i].userId === myId) { lastOwnIdx = i; break; }
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const op = stack.pop()!;
+    redoStackRef.current.push(op);
+    if (op.type === 'add') {
+      // Ekleme islemini geri al: action'ı sil
+      pendingDeletesRef.current.add(op.action.id);
+      setActions(prev => prev.filter(a => a.id !== op.action.id));
+      fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
+    } else {
+      // Silme islemini geri al: action'ı geri ekle
+      pendingDeletesRef.current.delete(op.action.id);
+      setActions(prev => [...prev, op.action]);
+      syncActionToServer(op.action);
     }
-    if (lastOwnIdx === -1) return; // no own actions to undo
-    const removed = current[lastOwnIdx];
-    pendingDeletesRef.current.add(removed.id);
-    setActions([...current.slice(0, lastOwnIdx), ...current.slice(lastOwnIdx + 1)]);
-    setRedoStack([...redoRef.current, removed]);
-    // Sync deletion to server so others see it
-    fetch(`/api/whiteboard/${id}/actions/${removed.id}`, { method: 'DELETE' }).catch(() => {});
-  }, [id]);
+    pushUndoCount(); pushRedoCount();
+  }, [id, syncActionToServer]);
 
   const handleRedo = useCallback(() => {
-    const redo = redoRef.current;
-    if (redo.length === 0) return;
-    const restored = redo[redo.length - 1];
-    pendingDeletesRef.current.delete(restored.id);
-    setActions([...actionsRef.current, restored]);
-    setRedoStack(redo.slice(0, -1));
-    // Re-add to server
-    syncActionToServer(restored);
-  }, [syncActionToServer]);
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const op = stack.pop()!;
+    undoStackRef.current.push(op);
+    if (op.type === 'add') {
+      // Ekleme islemini tekrar yap
+      setActions(prev => [...prev, op.action]);
+      syncActionToServer(op.action);
+    } else {
+      // Silme islemini tekrar yap
+      pendingDeletesRef.current.add(op.action.id);
+      setActions(prev => prev.filter(a => a.id !== op.action.id));
+      fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
+    }
+    pushUndoCount(); pushRedoCount();
+  }, [id, syncActionToServer]);
 
   // Sync moved/resized actions to server so other clients see the changes
   const handleSyncActions = useCallback(async () => {
@@ -478,8 +496,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         <span className="text-[10px] text-gray-400 ml-1">({nickname})</span>
         <div className="flex-1" />
 
-        <button onClick={handleUndo} disabled={actions.length === 0} className="w-7 h-7 rounded flex items-center justify-center text-gray-600 hover:bg-[#e0e0e0] disabled:opacity-30 transition-colors text-sm" title="Geri Al (Ctrl+Z)">↶</button>
-        <button onClick={handleRedo} disabled={redoStack.length === 0} className="w-7 h-7 rounded flex items-center justify-center text-gray-600 hover:bg-[#e0e0e0] disabled:opacity-30 transition-colors text-sm" title="Yinele (Ctrl+Y)">↷</button>
+        <button onClick={handleUndo} disabled={undoCount === 0} className="w-7 h-7 rounded flex items-center justify-center text-gray-600 hover:bg-[#e0e0e0] disabled:opacity-30 transition-colors text-sm" title="Geri Al (Ctrl+Z)">↶</button>
+        <button onClick={handleRedo} disabled={redoCount === 0} className="w-7 h-7 rounded flex items-center justify-center text-gray-600 hover:bg-[#e0e0e0] disabled:opacity-30 transition-colors text-sm" title="Yinele (Ctrl+Y)">↷</button>
         <div className="h-5 w-px bg-[#d0d0d0]" />
         <button onClick={() => setShowShare(true)} className="h-7 px-2.5 bg-[#4a90d9] text-white text-[10px] font-medium rounded hover:bg-[#3a7bc8] transition-colors flex items-center gap-1">🔗 <span className="hidden sm:inline">Paylaş</span></button>
         <button onClick={handleExportPNG} className="h-7 px-2.5 bg-white border border-[#d0d0d0] text-gray-700 text-[10px] font-medium rounded hover:bg-gray-50 transition-colors flex items-center gap-1">💾 <span className="hidden sm:inline">İndir</span></button>
@@ -494,11 +512,11 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           onToolSelect={handleToolChange}
           onUndo={handleUndo}
           onRedo={handleRedo}
-          canUndo={actions.length > 0}
-          canRedo={redoStack.length > 0}
+          canUndo={undoCount > 0}
+          canRedo={redoCount > 0}
           onOpenOptions={() => togglePanel('options')}
-          undoCount={actions.length}
-          redoCount={redoStack.length}
+          undoCount={undoCount}
+          redoCount={redoCount}
         />
 
         {/* ===== FLOATING PANELS (appear next to sidebar) ===== */}
@@ -515,7 +533,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
                 onExportPNG={handleExportPNG}
                 onClear={() => {
                   if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) {
-                    setActions([]); setRedoStack([]);
+                    setActions([]); undoStackRef.current = []; redoStackRef.current = []; setUndoCount(0); setRedoCount(0);
                     showToast('Tahta temizlendi', 'success');
                   }
                 }}
@@ -649,7 +667,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
 
       {/* Modals */}
-      {showSettings && <SettingsPanel settings={settings} onUpdate={(updates) => setSettings(prev => ({ ...prev, ...updates }))} onClose={() => setShowSettings(false)} onDelete={() => { if (confirm('Bu tahtayı silmek istediğinize emin misiniz?')) { showToast('Tahta silindi', 'success'); window.location.href = '/'; } }}                onClear={() => { if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) { setActions([]); setRedoStack([]); showToast('Tahta temizlendi', 'success'); } }} />}
+      {showSettings && <SettingsPanel settings={settings} onUpdate={(updates) => setSettings(prev => ({ ...prev, ...updates }))} onClose={() => setShowSettings(false)} onDelete={() => { if (confirm('Bu tahtayı silmek istediğinize emin misiniz?')) { showToast('Tahta silindi', 'success'); window.location.href = '/'; } }}                onClear={() => { if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) { setActions([]); undoStackRef.current = []; redoStackRef.current = []; setUndoCount(0); setRedoCount(0); showToast('Tahta temizlendi', 'success'); } }} />}
       {showShare && <ShareModal boardId={id} onClose={() => setShowShare(false)} />}
     </div>
   );
