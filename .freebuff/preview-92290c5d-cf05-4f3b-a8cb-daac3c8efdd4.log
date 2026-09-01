@@ -1,0 +1,38 @@
+
+> freebuff-whiteboard@1.0.0 dev
+> next dev --port 3003
+
+   ▲ Next.js 15.5.24
+   - Local:        http://localhost:3003
+   - Network:      http://192.168.1.103:3003
+   - Experiments (use with caution):
+     · serverActions
+
+ ✓ Starting...
+ ✓ Ready in 1630ms
+ ○ Compiling /api/whiteboard/[id]/actions ...
+ ✓ Compiled /api/whiteboard/[id]/actions in 618ms (335 modules)
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 1148ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 1155ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1355ms (605 modules)
+ GET / 200 in 1638ms
+ ✓ Compiled in 84ms (234 modules)
+ GET / 200 in 48ms
+ GET / 200 in 44ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 102ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 23ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 65ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 76ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 50ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 75ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 25ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 30ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 28ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 30ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 22ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 31ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 18ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 26ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 38ms
+ GET /api/whiteboard/1a93723b73a0/actions?since=1788273733284 200 in 30ms
