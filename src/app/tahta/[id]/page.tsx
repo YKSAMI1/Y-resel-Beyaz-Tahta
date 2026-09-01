@@ -255,8 +255,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const handleDeleteAction = useCallback(async (actionId: string) => {
     const current = actionsRef.current;
     const removed = current.find(a => a.id === actionId);
-    if (removed && removed.userId === clientIdRef.current) {
-      // Sadece kendi islemlerini undo stack'e ekle
+    if (removed) {
+      // Kimin olursa olsun undo stack'e ekle
       undoStackRef.current.push({ type: 'delete', action: removed });
       redoStackRef.current = [];
       pushUndoCount(); pushRedoCount();
