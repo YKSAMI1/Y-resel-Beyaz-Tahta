@@ -6,13 +6,14 @@
 import { sql } from '@vercel/postgres';
 
 const isProd = !!process.env.POSTGRES_URL;
+export const hasDb = !!process.env.POSTGRES_URL;
 
 // Tabloları oluştur (ilk çalıştırmada)
 let schemaReady = false;
 
 export async function ensureSchema() {
   if (schemaReady) return;
-  if (!isProd) return; // Yerelde tablo gerekmez
+  if (!hasDb) return; // DB yoksa tablo gerekmez
 
   try {
     await sql`

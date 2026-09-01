@@ -1,13 +1,13 @@
 // ============================================
 // Veri deposu
-// - Üretim (Vercel): Vercel Postgres
-// - Yerel geliştirme: Bellek içi (in-memory)
+// - Neon PostgreSQL: Veritabaninda saklama
+// - Yerel gelistirme: Bellek ici (in-memory)
 // ============================================
 
 import { Whiteboard, Participant, DrawAction, WhiteboardSettings } from '@/types';
-import { sql, isProd, ensureSchema } from './db';
+import { sql, hasDb, ensureSchema } from './db';
 
-// ===== Bellek içi depo (yerel geliştirme) =====
+// ===== Bellek ici depo (yerel gelistirme) =====
 interface StoredWhiteboard {
   whiteboard: Whiteboard;
   participants: Map<string, Participant>;
@@ -18,13 +18,11 @@ interface StoredWhiteboard {
 class InMemoryStore {
   private whiteboards: Map<string, StoredWhiteboard> = new Map();
 
-  async init() { /* no-op */ }
-
   async createWhiteboard(id: string, name: string, settings: WhiteboardSettings, ownerId: string): Promise<Whiteboard> {
     const now = Date.now();
     const whiteboard: Whiteboard = {
       id, name, settings, ownerId, createdAt: now, expiresAt: null,
-      layers: [{ id: 'layer-default', name: 'Varsayılan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
+      layers: [{ id: 'layer-default', name: 'Varsayilan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
       blockedUsers: [],
     };
     this.whiteboards.set(id, { whiteboard, participants: new Map(), actions: [], deletedIds: [] });
@@ -83,72 +81,61 @@ class InMemoryStore {
   }
 }
 
-// ===== Vercel Postgres deposu (üretim) =====
+// ===== Neon PostgreSQL deposu =====
 class PostgresStore {
-  async init() {
-    await ensureSchema();
+  private ready = false;
+
+  private async ensureReady() {
+    if (!this.ready) {
+      await ensureSchema();
+      this.ready = true;
+    }
   }
 
   async createWhiteboard(id: string, name: string, settings: WhiteboardSettings, ownerId: string): Promise<Whiteboard> {
+    await this.ensureReady();
     const now = Date.now();
     const whiteboard: Whiteboard = {
       id, name, settings, ownerId, createdAt: now, expiresAt: null,
-      layers: [{ id: 'layer-default', name: 'Varsayılan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
+      layers: [{ id: 'layer-default', name: 'Varsayilan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
       blockedUsers: [],
     };
-
-    await sql`
-      INSERT INTO whiteboards (id, name, settings, owner_id, created_at, layers)
-      VALUES (${id}, ${name}, ${JSON.stringify(settings)}, ${ownerId}, ${now}, ${JSON.stringify(whiteboard.layers)})
-      ON CONFLICT (id) DO NOTHING`;
-
+    await sql`INSERT INTO whiteboards (id, name, settings, owner_id, created_at, layers) VALUES (${id}, ${name}, ${JSON.stringify(whiteboard.settings)}, ${ownerId}, ${now}, ${JSON.stringify(whiteboard.layers)}) ON CONFLICT (id) DO NOTHING`;
     return whiteboard;
   }
 
   async getWhiteboard(id: string): Promise<StoredWhiteboard | undefined> {
+    await this.ensureReady();
     const result = await sql`SELECT * FROM whiteboards WHERE id = ${id}`;
     if (result.rows.length === 0) return undefined;
     const row = result.rows[0];
-    if (row.expires_at && row.expires_at < Date.now()) {
-      await sql`DELETE FROM whiteboards WHERE id = ${id}`;
-      return undefined;
-    }
     return {
       whiteboard: {
-        id: row.id,
-        name: row.name,
+        id: row.id, name: row.name,
         settings: typeof row.settings === 'string' ? JSON.parse(row.settings) : row.settings,
-        ownerId: row.owner_id,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
+        ownerId: row.owner_id, createdAt: row.created_at, expiresAt: row.expires_at,
         layers: typeof row.layers === 'string' ? JSON.parse(row.layers) : row.layers,
         blockedUsers: row.blocked_users || [],
       },
-      participants: new Map(),
-      actions: [],
-      deletedIds: [],
+      participants: new Map(), actions: [], deletedIds: [],
     };
   }
 
   async addAction(id: string, action: DrawAction): Promise<void> {
-    await sql`
-      INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp)
-      VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp})
-      ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(action)}, timestamp = ${action.timestamp}`;
+    await this.ensureReady();
+    await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(action)}, timestamp = ${action.timestamp}`;
   }
 
   async setActions(id: string, newActions: DrawAction[]): Promise<void> {
-    // Toplu güncelleme: mevcutları sil, yenilerini ekle
+    await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
     for (const action of newActions.slice(-5000)) {
-      await sql`
-        INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp)
-        VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp})
-        ON CONFLICT (id) DO NOTHING`;
+      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(action)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO NOTHING`;
     }
   }
 
   async getActions(id: string, since: number = 0): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
+    await this.ensureReady();
     let rows;
     if (since > 0) {
       rows = await sql`SELECT data FROM actions WHERE whiteboard_id = ${id} AND timestamp > ${since} ORDER BY timestamp`;
@@ -157,19 +144,21 @@ class PostgresStore {
     }
     const deletedResult = since > 0
       ? await sql`SELECT id FROM deleted_ids WHERE whiteboard_id = ${id} AND deleted_at > ${since}`
-      : { rows: [] };
+      : { rows: [] as any[] };
     return {
-      actions: rows.rows.map(r => typeof r.data === 'string' ? JSON.parse(r.data) : r.data),
-      deletedIds: deletedResult.rows.map(r => r.id),
+      actions: rows.rows.map((r: any) => typeof r.data === 'string' ? JSON.parse(r.data) : r.data),
+      deletedIds: deletedResult.rows.map((r: any) => r.id),
     };
   }
 
   async removeAction(id: string, actionId: string): Promise<void> {
+    await this.ensureReady();
     await sql`DELETE FROM actions WHERE id = ${actionId} AND whiteboard_id = ${id}`;
     await sql`INSERT INTO deleted_ids (id, whiteboard_id, deleted_at) VALUES (${actionId}, ${id}, ${Date.now()}) ON CONFLICT DO NOTHING`;
   }
 
   async updateSettings(id: string, settings: Partial<WhiteboardSettings>): Promise<Whiteboard | null> {
+    await this.ensureReady();
     const result = await sql`SELECT * FROM whiteboards WHERE id = ${id}`;
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
@@ -185,6 +174,7 @@ class PostgresStore {
   }
 
   async clearWhiteboard(id: string): Promise<void> {
+    await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
     await sql`DELETE FROM deleted_ids WHERE whiteboard_id = ${id}`;
   }
@@ -193,7 +183,7 @@ class PostgresStore {
 // ===== Store export =====
 const globalStore = globalThis as any;
 if (!globalStore.__whiteboardStore) {
-  globalStore.__whiteboardStore = isProd ? new PostgresStore() : new InMemoryStore();
+  globalStore.__whiteboardStore = hasDb ? new PostgresStore() : new InMemoryStore();
 }
 
 export const whiteboardStore: InMemoryStore | PostgresStore = globalStore.__whiteboardStore;

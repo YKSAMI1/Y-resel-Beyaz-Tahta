@@ -10,10 +10,14 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@prisma/client": "^7.10.0",
+    "@types/pg": "^8.23.1",
     "@vercel/postgres": "^0.10.0",
     "fabric": "^6.5.1",
     "file-saver": "^2.0.5",
     "next": "^15.3.0",
+    "pg": "^8.23.0",
+    "prisma": "^8.0.0-rc.12",
     "qrcode": "^1.5.3",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
