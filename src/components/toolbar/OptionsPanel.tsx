@@ -19,6 +19,8 @@ interface OptionsPanelProps {
   onShare?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
+  onOpenParticipants?: () => void;
+  onOpenLayers?: () => void;
 }
 
 export default function OptionsPanel({
@@ -37,6 +39,8 @@ export default function OptionsPanel({
   onShare,
   onZoomIn,
   onZoomOut,
+  onOpenParticipants,
+  onOpenLayers,
 }: OptionsPanelProps) {
   const options = [
     { icon: '🧹', label: 'Temizle', onClick: onClear, color: 'text-orange-600 bg-orange-50' },
@@ -49,8 +53,8 @@ export default function OptionsPanel({
     { icon: '📋', label: 'Tümünü Kopyala', onClick: () => {}, color: 'text-gray-700', disabled: true },
     { icon: '📷', label: 'Ekran Görüntüsü', onClick: onExportPNG, color: 'text-green-600 bg-green-50' },
     { icon: '⬚', label: 'Seç', onClick: () => onToolSelect?.('select'), color: 'text-gray-700' },
-    { icon: '👥', label: `${participantCount} Kişi`, onClick: () => {}, color: 'text-gray-700' },
-    { icon: '📑', label: 'Katmanlar', onClick: () => {}, color: 'text-gray-700' },
+    { icon: '👥', label: `${participantCount} Kişi`, onClick: () => onOpenParticipants?.(), color: 'text-blue-600 bg-blue-50' },
+    { icon: '📑', label: 'Katmanlar', onClick: () => onOpenLayers?.(), color: 'text-gray-700' },
     { icon: '📐', label: 'Izgara', onClick: onToggleGrid, color: settings.showGrid ? 'text-blue-600 bg-blue-50' : 'text-gray-700' },
     { icon: '⚙️', label: 'Ayarlar', onClick: onToggleSettings, color: 'text-gray-700' },
     { icon: '⛶', label: isFullscreen ? 'Çıkış' : 'Tam Ekran', onClick: onToggleFullscreen, color: 'text-gray-700' },

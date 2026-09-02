@@ -30,6 +30,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
   // Nickname
   const [nickname, setNickname] = useState('');
+  const nicknameRef = useRef('');
   const [showNicknameModal, setShowNicknameModal] = useState(false);
   const [nicknameReady, setNicknameReady] = useState(false);
 
@@ -97,6 +98,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     const savedNick = localStorage.getItem('freebuff_nickname');
     if (savedNick) {
       setNickname(savedNick);
+      nicknameRef.current = savedNick;
       clientIdRef.current = savedNick; // nickname = userId
       setNicknameReady(true);
       setParticipants(prev => prev.map(p => p.id === 'self' ? { ...p, name: savedNick } : p));
@@ -108,6 +110,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const handleNicknameSave = () => {
     const name = nickname.trim() || generateGuestName();
     setNickname(name);
+    nicknameRef.current = name;
     clientIdRef.current = name; // nickname = userId
     localStorage.setItem('freebuff_nickname', name);
     setNicknameReady(true);
@@ -233,24 +236,30 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
   useEffect(() => {
     if (!nicknameReady || !nickname) return;
-    const userColor = participants.find(p => p.id === 'self')?.color || '#2563eb';
-    // Send heartbeat
     const sendHeartbeat = async () => {
       try {
+        const nick = nicknameRef.current || nickname;
+        if (!nick) return;
+        // Heartbeat gonder (kendini sunucuya bildir)
         await fetch(`/api/whiteboard/${id}/heartbeat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: clientIdRef.current, nickname, color: userColor }),
+          body: JSON.stringify({
+            userId: clientIdRef.current || nick,
+            nickname: nick,
+            color: participants.find(p => p.id === 'self')?.color || '#2563eb',
+          }),
         });
-        // Get active users
+        // Aktif kullanicilari al
         const res = await fetch(`/api/whiteboard/${id}/heartbeat`);
         if (res.ok) {
           const data = await res.json();
           if (data.users) {
             setParticipants(prev => {
               const self = prev.find(p => p.id === 'self');
+              const nick = clientIdRef.current || nicknameRef.current;
               const others = data.users
-                .filter((u: any) => u.userId !== clientIdRef.current)
+                .filter((u: any) => u.userId !== nick)
                 .map((u: any) => ({
                   id: u.userId,
                   name: u.nickname,
@@ -661,6 +670,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
                 onShare={() => setShowShare(true)}
                 onZoomIn={() => canvasRef.current?.setZoom((canvasRef.current.getZoom() || 1) * 2)}
                 onZoomOut={() => canvasRef.current?.setZoom((canvasRef.current.getZoom() || 1) * 0.5)}
+                onOpenParticipants={() => togglePanel('participants')}
+                onOpenLayers={() => togglePanel('layers')}
               />
             </div>
           </FloatingPanel>
