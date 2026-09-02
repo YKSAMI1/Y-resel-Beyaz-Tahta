@@ -529,6 +529,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [groupRotation, setGroupRotation] = useState(0); // multi-select visual rotation during drag
   const origPointsRef = useRef<Map<string, {x:number;y:number}[]>>(new Map()); // original points before multi-rotate
   const prevAngleRef = useRef(0); // previous angle for incremental rotation
+  const accumulatedRotRef = useRef(0); // total rotation accumulated since drag start
   // Lasso fill state
   const [isLassoing, setIsLassoing] = useState(false);
   const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
@@ -925,6 +926,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
             origPointsRef.current = origMap;
             const initAngle = Math.atan2(pt.y - uc.y, pt.x - uc.x);
             prevAngleRef.current = initAngle;
+            accumulatedRotRef.current = startRot;
             setIsRotating(true);
             setRotateStart({ x: pt.x, y: pt.y, centerX: uc.x, centerY: uc.y, startAngle: startRot });
             return;
@@ -1035,25 +1037,24 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       if (deltaRad < -Math.PI) deltaRad += 2 * Math.PI;
       const deltaDeg = (deltaRad * 180) / Math.PI;
       prevAngleRef.current = currentAngle;
+      // Birikimli toplam açıyı güncelle
+      accumulatedRotRef.current += deltaDeg;
+      const totalDeg = accumulatedRotRef.current;
       if (selectedIds.length > 1) {
-        // Multi-select: rotate saved points around unified center incrementally
+        // Multi-select: orijinal noktaları merkez etrafında döndür
         const center = { x: rotateStart.centerX, y: rotateStart.centerY };
         const origMap = origPointsRef.current;
         onUpdateActions?.(prev => prev.map(a => {
           if (!selectedIds.includes(a.id)) return a;
           const origPts = origMap.get(a.id);
           if (!origPts) return a;
-          // Rotate original points by accumulated total
-          const totalDeg = (groupRotation + deltaDeg);
           return { ...a, points: origPts.map(p => rotatePoint(p, center, totalDeg)) };
         }));
-        setGroupRotation(prev => prev + deltaDeg);
       } else {
-        // Single select: set rotation field
-        const newAngle = rotateStart.startAngle + deltaDeg;
+        // Single select: rotation alanını ayarla
         onUpdateActions?.(prev => prev.map(a => {
           if (!selectedIds.includes(a.id)) return a;
-          return { ...a, rotation: newAngle };
+          return { ...a, rotation: totalDeg };
         }));
       }
       return;
@@ -1206,6 +1207,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       setIsRotating(false);
       setRotateStart(null);
       setGroupRotation(0);
+      accumulatedRotRef.current = 0;
       origPointsRef.current = new Map();
       onSyncActions?.();
       return;
@@ -1360,8 +1362,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       </div>
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={handleImageFileChange} />
       {selectedIds.length > 0 && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-medium px-3 py-1 rounded-full shadow z-10">
-          {selectedIds.length} nesne seçili — Delete ile sil, sürükle → taşı
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-medium pl-3 pr-1 py-1 rounded-full shadow z-10 flex items-center gap-2">
+          <span>{selectedIds.length} nesne seçili — sürükle → taşı</span>
+          <button
+            onClick={() => { for (const id of selectedIds) { onDeleteAction?.(id); } setSelectedIds([]); }}
+            className="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold transition-colors shrink-0"
+            title="Seçili nesneleri sil"
+          >🗑️</button>
         </div>
       )}
       {/* Inspect tooltip */}
