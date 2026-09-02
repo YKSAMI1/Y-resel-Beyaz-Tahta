@@ -1,29 +1,38 @@
 // ============================================
-// Veritabanı bağlantısı - pg paketi ile doğrudan bağlantı
+// Veritabanı bağlantısı - pg paketi ile VDS PostgreSQL
 // ============================================
 
-// Neon fallback varsa onu kullan, yoksa VDS PostgreSQL
-const NEON_URL = process.env.POSTGRES_URL || 'postgresql://whiteboard:8%26oqO%25YsB4oJPC%24Rhn9gP@yikimdara.com.tr:5432/whiteboard_db';
+const DB_URL = process.env.POSTGRES_URL || 'postgresql://whiteboard:8%26oqO%25YsB4oJPC%24Rhn9gP@yikimdara.com.tr:5432/whiteboard_db';
 
 export const hasDb = true;
 export const isProd = true;
 
-// pg'yi lazy olarak yükle
+// pg'yi lazy olarak yukle
 let _pool: any = null;
 
 function getPool() {
   if (!_pool) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Pool } = require('pg');
-    _pool = new Pool({ connectionString: NEON_URL, max: 10, idleTimeoutMillis: 30000 });
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pg = require('pg');
+      _pool = new pg.Pool({
+        connectionString: DB_URL,
+        max: 10,
+        idleTimeoutMillis: 30000,
+        ssl: false,
+        connectionTimeoutMillis: 10000,
+      });
+    } catch (e) {
+      console.error('PostgreSQL pool olusturulamadi:', e);
+      throw e;
+    }
   }
   return _pool;
 }
 
-// sql tagged template function - @vercel/postgres uyumlu
+// sql tagged template - pg uyumlu
 export function sql(strings: TemplateStringsArray, ...values: any[]) {
   const pool = getPool();
-  // Template literal'i SQL string'e çevir
   let query = '';
   for (let i = 0; i < strings.length; i++) {
     query += strings[i];
@@ -34,7 +43,7 @@ export function sql(strings: TemplateStringsArray, ...values: any[]) {
   return pool.query(query, values);
 }
 
-// Tabloları oluştur
+// Tablolari olustur
 let schemaReady = false;
 
 export async function ensureSchema() {
@@ -61,6 +70,6 @@ export async function ensureSchema() {
 
     schemaReady = true;
   } catch (e) {
-    console.error('Schema initialization failed:', e);
+    console.error('Schema init hatasi:', e);
   }
 }
