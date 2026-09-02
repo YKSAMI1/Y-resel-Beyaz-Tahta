@@ -1360,8 +1360,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       </div>
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={handleImageFileChange} />
       {selectedIds.length > 0 && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-medium px-3 py-1 rounded-full shadow z-10">
-          {selectedIds.length} nesne seçili — Delete ile sil, sürükle → taşı
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-medium pl-3 pr-1 py-1 rounded-full shadow z-10 flex items-center gap-2">
+          <span>{selectedIds.length} nesne seçili — sürükle → taşı</span>
+          <button
+            onClick={() => { for (const id of selectedIds) { onDeleteAction?.(id); } setSelectedIds([]); }}
+            className="bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold transition-colors shrink-0"
+            title="Seçili nesneleri sil"
+          >🗑️</button>
         </div>
       )}
       {/* Inspect tooltip */}
