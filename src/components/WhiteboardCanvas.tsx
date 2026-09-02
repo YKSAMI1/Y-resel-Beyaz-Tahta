@@ -1040,23 +1040,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       // Birikimli toplam açıyı güncelle
       accumulatedRotRef.current += deltaDeg;
       const totalDeg = accumulatedRotRef.current;
-      if (selectedIds.length > 1) {
-        // Multi-select: orijinal noktaları merkez etrafında döndür
-        const center = { x: rotateStart.centerX, y: rotateStart.centerY };
-        const origMap = origPointsRef.current;
-        onUpdateActions?.(prev => prev.map(a => {
-          if (!selectedIds.includes(a.id)) return a;
-          const origPts = origMap.get(a.id);
-          if (!origPts) return a;
-          return { ...a, points: origPts.map(p => rotatePoint(p, center, totalDeg)) };
-        }));
-      } else {
-        // Single select: rotation alanını ayarla
-        onUpdateActions?.(prev => prev.map(a => {
-          if (!selectedIds.includes(a.id)) return a;
-          return { ...a, rotation: totalDeg };
-        }));
-      }
+      // Tekli ve çoklu seçimde hepsini points ile döndür (rotation field kullanma)
+      const center = { x: rotateStart.centerX, y: rotateStart.centerY };
+      const origMap = origPointsRef.current;
+      onUpdateActions?.(prev => prev.map(a => {
+        if (!selectedIds.includes(a.id)) return a;
+        const origPts = origMap.get(a.id);
+        if (!origPts) return a;
+        return { ...a, points: origPts.map(p => rotatePoint(p, center, totalDeg)), rotation: 0 };
+      }));
       return;
     }
 
