@@ -1,19 +1,29 @@
 // ============================================
-// Vercel Postgres veritabanı bağlantısı
-// Yerel geliştirme: fallback olarak bellek içi depo kullanılır
+// Veritabanı bağlantısı
+// POSTGRES_URL varsa onu kullan, yoksa Neon'a bağlan
 // ============================================
 
-import { sql } from '@vercel/postgres';
+import { createPool } from '@vercel/postgres';
 
-const isProd = !!process.env.POSTGRES_URL;
-export const hasDb = !!process.env.POSTGRES_URL;
+// Neon connection string - Vercel'de env var yoksa bu kullanılır
+const NEON_URL = 'postgresql://neondb_owner:npg_EplT5vBmrPJ0@ep-holy-bread-b1pcur1x-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require';
+
+// Connection string seçimi: env var > Neon
+const connStr = process.env.POSTGRES_URL || NEON_URL;
+
+// Pool oluştur ve sql'i export et
+const pool = createPool({ connectionString: connStr });
+const sql = pool.sql;
+
+export const hasDb = !!connStr;
+const isProd = !!connStr;
 
 // Tabloları oluştur (ilk çalıştırmada)
 let schemaReady = false;
 
 export async function ensureSchema() {
   if (schemaReady) return;
-  if (!hasDb) return; // DB yoksa tablo gerekmez
+  if (!hasDb) return;
 
   try {
     await sql`
@@ -50,7 +60,6 @@ export async function ensureSchema() {
 
     await sql`CREATE INDEX IF NOT EXISTS idx_deleted_whiteboard ON deleted_ids(whiteboard_id, deleted_at)`;
 
-    // Fotograflar icin ayri tablo (buyuk base64 verisi)
     await sql`
       CREATE TABLE IF NOT EXISTS images (
         id TEXT PRIMARY KEY,
@@ -60,7 +69,6 @@ export async function ensureSchema() {
       )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_images_whiteboard ON images(whiteboard_id)`;
 
-    // Abuse tracking
     await sql`
       CREATE TABLE IF NOT EXISTS abuse_log (
         whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
@@ -72,7 +80,6 @@ export async function ensureSchema() {
         PRIMARY KEY (whiteboard_id, user_id)
       )`;
 
-    // Snapshots
     await sql`
       CREATE TABLE IF NOT EXISTS snapshots (
         id TEXT PRIMARY KEY,
@@ -83,7 +90,6 @@ export async function ensureSchema() {
       )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_whiteboard ON snapshots(whiteboard_id)`;
 
-    // Broadcast messages
     await sql`
       CREATE TABLE IF NOT EXISTS broadcasts (
         id SERIAL PRIMARY KEY,
@@ -93,7 +99,6 @@ export async function ensureSchema() {
       )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_broadcasts_whiteboard ON broadcasts(whiteboard_id, created_at)`;
 
-    // Active users tracking
     await sql`
       CREATE TABLE IF NOT EXISTS active_users (
         whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
