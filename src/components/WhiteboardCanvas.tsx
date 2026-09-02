@@ -533,6 +533,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const [isLassoing, setIsLassoing] = useState(false);
   const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  // Inspect mode state
+  const [inspectInfo, setInspectInfo] = useState<{ action: DrawAction; screenX: number; screenY: number } | null>(null);
 
   // Zoom
   const setZoomFn = useCallback((zOrFn: number | ((prev: number) => number)) => {
@@ -567,8 +569,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const action of actions) { const bbox = getActionBBox(action); if (!bbox) continue; minX = Math.min(minX, bbox.x); minY = Math.min(minY, bbox.y); maxX = Math.max(maxX, bbox.x + bbox.w); maxY = Math.max(maxY, bbox.y + bbox.h); }
     if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 800; maxY = 600; }
-    const padding = 50; const exportW = maxX - minX + padding * 2; const exportH = maxY - minY + padding * 2; const scale = 2;
-    const offscreen = document.createElement('canvas'); offscreen.width = exportW * scale; offscreen.height = exportH * scale;
+    const padding = 50; const exportW = maxX - minX + padding * 2; const exportH = maxY - minY + padding * 2;
+    // Adaptive scale: cap total pixels to avoid memory crash (max ~16MP)
+    const MAX_PIXELS = 16000000;
+    let scale = 2;
+    if (exportW * exportH * scale * scale > MAX_PIXELS) {
+      scale = Math.sqrt(MAX_PIXELS / (exportW * exportH));
+    }
+    // Also cap absolute dimensions
+    const MAX_DIM = 8000;
+    if (exportW * scale > MAX_DIM || exportH * scale > MAX_DIM) {
+      scale = Math.min(MAX_DIM / exportW, MAX_DIM / exportH);
+    }
+    const offscreen = document.createElement('canvas'); offscreen.width = Math.round(exportW * scale); offscreen.height = Math.round(exportH * scale);
     const offCtx = offscreen.getContext('2d'); if (!offCtx) return;
     offCtx.scale(scale, scale); offCtx.fillStyle = '#ffffff'; offCtx.fillRect(0, 0, exportW, exportH);
     offCtx.translate(-minX + padding, -minY + padding);
@@ -966,6 +979,25 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       return;
     }
 
+    // INSPECT — click to see who drew what
+    if (tool === 'inspect') {
+      const pt = getCanvasPoint(e);
+      onCanvasInteract?.();
+      let found: DrawAction | null = null;
+      for (let i = actions.length - 1; i >= 0; i--) {
+        if (isPointInAction(pt, actions[i])) { found = actions[i]; break; }
+      }
+      if (found) {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        const screenX = rect ? rect.left + pt.x * zoomRef.current + pan.x : 0;
+        const screenY = rect ? rect.top + pt.y * zoomRef.current + pan.y : 0;
+        setInspectInfo({ action: found, screenX, screenY });
+      } else {
+        setInspectInfo(null);
+      }
+      return;
+    }
+
     // ERASER — start erasing with visual path
     if (tool === 'eraser') {
       const pt = getCanvasPoint(e);
@@ -1311,6 +1343,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     if (tool === 'image') return 'pointer';
     if (tool === 'fillbucket') return 'crosshair';
     if (tool === 'lasso') return 'crosshair';
+    if (tool === 'inspect') return 'help';
     return 'crosshair';
   };
 
@@ -1329,6 +1362,25 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       {selectedIds.length > 0 && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-medium px-3 py-1 rounded-full shadow z-10">
           {selectedIds.length} nesne seçili — Delete ile sil, sürükle → taşı
+        </div>
+      )}
+      {/* Inspect tooltip */}
+      {inspectInfo && (
+        <div
+          className="fixed z-50 bg-gray-900 text-white rounded-xl shadow-2xl px-4 py-3 max-w-xs pointer-events-none"
+          style={{ left: Math.min(inspectInfo.screenX + 16, window.innerWidth - 280), top: Math.max(inspectInfo.screenY - 80, 8) }}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: participants.find(p => p.id === inspectInfo.action.userId)?.color || '#888' }} />
+            <span className="text-sm font-semibold">{participants.find(p => p.id === inspectInfo.action.userId)?.name || inspectInfo.action.userId || 'Bilinmiyor'}</span>
+          </div>
+          <div className="text-[11px] text-gray-400">
+            Tür: {inspectInfo.action.type} • {new Date(inspectInfo.action.timestamp).toLocaleString('tr-TR')}
+          </div>
+          <button
+            onClick={() => setInspectInfo(null)}
+            className="absolute top-1 right-2 text-gray-500 hover:text-white text-xs"
+          >✕</button>
         </div>
       )}
     </div>

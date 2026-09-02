@@ -22,7 +22,8 @@ export type Tool =
   | 'image'
   | 'hand'
   | 'fillbucket'
-  | 'lasso';
+  | 'lasso'
+  | 'inspect';
 
 export interface WhiteboardSettings {
   allowDrawing: boolean;

@@ -53,6 +53,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const [actions, setActions] = useState<DrawAction[]>([]);
   const actionsRef = useRef<DrawAction[]>([]);
   const pendingDeletesRef = useRef<Set<string>>(new Set());
+  const snapshotPauseRef = useRef(false); // snapshot yuklerken polling'i durdur
   const [syncedTimestamp, setSyncedTimestamp] = useState(0);
   // Unique client ID
   const clientIdRef = useRef('client_' + Math.random().toString(36).substring(2, 10));
@@ -90,9 +91,6 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   // Broadcast messages
   const [broadcasts, setBroadcasts] = useState<{ message: string; timestamp: number }[]>([]);
   const [broadcastBanner, setBroadcastBanner] = useState<string | null>(null);
-  // Abuse block state
-  const [isBlocked, setIsBlocked] = useState(false);
-  const [blockedUntil, setBlockedUntil] = useState(0);
 
   // ===== Nickname =====
   useEffect(() => {
@@ -179,6 +177,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   // ===== REAL-TIME SYNC: Poll server every 2s =====
   useEffect(() => {
     const pollInterval = setInterval(async () => {
+      if (snapshotPauseRef.current) return; // snapshot yukleniyor, bekle
       try {
         const res = await fetch(`/api/whiteboard/${id}/actions?since=${syncedTimestamp}`);
         if (res.ok) {
@@ -271,10 +270,6 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, [syncActionToServer]);
 
   const handleDeleteAction = useCallback(async (actionId: string) => {
-    if (isBlocked) {
-      showToast('Engellendiniz — bir sure bekleyin', 'error');
-      return;
-    }
     const current = actionsRef.current;
     const removed = current.find(a => a.id === actionId);
     if (removed) {
@@ -284,18 +279,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     }
     pendingDeletesRef.current.add(actionId);
     setActions(prev => prev.filter(a => a.id !== actionId));
-    try {
-      const res = await fetch(`/api/whiteboard/${id}/actions/${actionId}?userId=${clientIdRef.current}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.blocked) {
-        setIsBlocked(true);
-        setBlockedUntil(data.blockedUntil);
-        showToast('⚠️ Cok fazla silme! 5 dakika engellendiniz.', 'error');
-        // Auto-unblock after ban expires
-        setTimeout(() => { setIsBlocked(false); setBlockedUntil(0); }, data.blockedUntil - Date.now());
-      }
-    } catch { /* ignore */ }
-  }, [id, isBlocked]);
+    try { await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' }); } catch { /* ignore */ }
+  }, [id]);
 
   const handleUndo = useCallback(() => {
     const stack = undoStackRef.current;
@@ -374,15 +359,29 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
   const handleLoadSnapshot = useCallback(async (snapshotId: string) => {
     try {
+      snapshotPauseRef.current = true; // polling'i durdur
       const res = await fetch(`/api/whiteboard/${id}/snapshots/${snapshotId}`);
       if (res.ok) {
         const data = await res.json();
         if (data.actions) {
+          // Snapshot'i hem local hem sunucuya uygula (diger kullanilara senkronize et)
           setActions(data.actions);
-          showToast('Snapshot yüklendi!', 'success');
+          actionsRef.current = data.actions;
+          // Sunucuya da yukle ki diger kullanilar da gorun
+          await fetch(`/api/whiteboard/${id}/actions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bulk: data.actions.map((a: DrawAction) => ({ ...a, timestamp: Date.now() + Math.random() * 1000 })) }),
+          });
+          showToast('Snapshot yüklendi ve senkronize edildi!', 'success');
         }
       }
-    } catch { showToast('Snapshot yüklenemedi', 'error'); }
+      // 3 saniye sonra polling'i devam ettir
+      setTimeout(() => { snapshotPauseRef.current = false; }, 3000);
+    } catch {
+      snapshotPauseRef.current = false;
+      showToast('Snapshot yüklenemedi', 'error');
+    }
   }, [id]);
 
   // Export
@@ -488,6 +487,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         case 'r': handleToolChange('rectangle'); break;
         case 'd': handleToolChange('circle'); break;
         case 'h': handleToolChange('hand'); break;
+        case 'i': handleToolChange('inspect'); break;
       }
     };
     window.addEventListener('keydown', handleToolShortcut);
@@ -731,13 +731,6 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       {broadcastBanner && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-white px-6 py-3 rounded-xl shadow-lg animate-bounce max-w-md text-center">
           <span className="text-sm font-semibold">📢 {broadcastBanner}</span>
-        </div>
-      )}
-
-      {/* Block Banner */}
-      {isBlocked && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg max-w-md text-center">
-          <span className="text-sm font-semibold">🚫 Engellendiniz — çok fazla silme işlemi yaptınız</span>
         </div>
       )}
 

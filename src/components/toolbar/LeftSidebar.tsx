@@ -23,6 +23,7 @@ const mainTools = [
   { id: 'erase', icon: '🧹', label: 'Sil', shortcut: 'E', tool: 'eraser' as Tool },
   { id: 'move', icon: '✋', label: 'Hareket et', shortcut: 'H', tool: 'hand' as Tool },
   { id: 'select', icon: '⬚', label: 'Seç', shortcut: 'V', tool: 'select' as Tool },
+  { id: 'inspect', icon: '🔍', label: 'İncele', shortcut: 'I', tool: 'inspect' as Tool },
   { id: 'options', icon: '⚙️', label: 'Seçenekler', shortcut: '' },
 ];
 
