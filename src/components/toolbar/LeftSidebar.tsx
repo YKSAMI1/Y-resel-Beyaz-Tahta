@@ -21,7 +21,7 @@ const mainTools = [
   { id: 'redo', icon: '↪', label: 'Yinele', shortcut: 'Ctrl+Y' },
   { id: 'draw', icon: '✏️', label: 'Çiz', shortcut: 'P', tool: 'pen' as Tool },
   { id: 'erase', icon: '🧹', label: 'Sil', shortcut: 'E', tool: 'eraser' as Tool },
-  { id: 'move', icon: '✋', label: 'Taşı', shortcut: 'H', tool: 'hand' as Tool },
+  { id: 'move', icon: '✋', label: 'Hareket et', shortcut: 'H', tool: 'hand' as Tool },
   { id: 'select', icon: '⬚', label: 'Seç', shortcut: 'V', tool: 'select' as Tool },
   { id: 'options', icon: '⚙️', label: 'Seçenekler', shortcut: '' },
 ];

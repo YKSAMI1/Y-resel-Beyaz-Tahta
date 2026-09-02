@@ -573,7 +573,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     offCtx.scale(scale, scale); offCtx.fillStyle = '#ffffff'; offCtx.fillRect(0, 0, exportW, exportH);
     offCtx.translate(-minX + padding, -minY + padding);
     drawAllActions(offCtx, actions, layers, 1);
-    const link = document.createElement('a'); link.download = `tahta-${Date.now()}.png`; link.href = offscreen.toDataURL('image/png'); link.click();
+    offscreen.toBlob((blob) => {
+      if (!blob || blob.size === 0) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.download = `tahta-${Date.now()}.png`; link.href = url;
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }, 'image/png');
   }, [actions, layers]);
 
   useImperativeHandle(ref, () => ({
@@ -869,8 +875,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
   // ===== POINTER HANDLERS =====
   const handlePointerDown = (e: React.PointerEvent) => {
-    // NEVER trigger drawing from middle mouse button or while panning
-    if (e.button === 1 || middleButtonRef.current || isPanningRef.current) return;
+    // NEVER trigger drawing from middle mouse button, while panning, or during multi-touch
+    if (e.button === 1 || middleButtonRef.current || isPanningRef.current || isMultiTouchRef.current) return;
     if (tool === 'hand') { setIsPanning(true); isPanningRef.current = true; setLastPanPos({ x: e.clientX, y: e.clientY }); return; }
 
     // SELECT
@@ -1237,10 +1243,30 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   };
 
   const lastTouchDist = useRef<number | null>(null);
-  const handleTouchStart = (e: React.TouchEvent) => { if (e.touches.length === 2) { e.preventDefault(); const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY; lastTouchDist.current = Math.sqrt(dx * dx + dy * dy); } };
+  const isMultiTouchRef = useRef(false);
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length >= 2) {
+      e.preventDefault();
+      isMultiTouchRef.current = true;
+      // Cancel any active drawing
+      if (isDrawing) {
+        setIsDrawing(false);
+        setStartPoint(null);
+        drawDataRef.current.points = [];
+      }
+      if (isErasing) {
+        setIsErasing(false);
+        setEraserPath([]);
+      }
+      const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTouchDist.current = Math.sqrt(dx * dx + dy * dy);
+    }
+  };
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && lastTouchDist.current !== null) {
-      e.preventDefault(); const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY;
+    if (e.touches.length >= 2 && lastTouchDist.current !== null) {
+      e.preventDefault();
+      isMultiTouchRef.current = true;
+      const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY;
       const newDist = Math.sqrt(dx * dx + dy * dy); const scale = newDist / lastTouchDist.current;
       const canvas = canvasRef.current; if (!canvas) return; const rect = canvas.getBoundingClientRect();
       const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left, centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
@@ -1249,7 +1275,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       zoomRef.current = newZ; setZoomState(newZ); setPan({ x: newPanX, y: newPanY }); lastTouchDist.current = newDist;
     }
   };
-  const handleTouchEnd = (e: React.TouchEvent) => { if (e.touches.length < 2) lastTouchDist.current = null; };
+  const handleTouchEnd = (e: React.TouchEvent) => { if (e.touches.length < 2) { lastTouchDist.current = null; isMultiTouchRef.current = false; } };
 
   const handleTextDoubleClick = (e: React.MouseEvent) => {
     if (tool !== 'text') return;

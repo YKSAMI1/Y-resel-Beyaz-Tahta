@@ -60,6 +60,39 @@ export async function ensureSchema() {
       )`;
     await sql`CREATE INDEX IF NOT EXISTS idx_images_whiteboard ON images(whiteboard_id)`;
 
+    // Abuse tracking
+    await sql`
+      CREATE TABLE IF NOT EXISTS abuse_log (
+        whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL,
+        count INT NOT NULL DEFAULT 1,
+        first_delete_at BIGINT NOT NULL,
+        blocked_until BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (whiteboard_id, user_id)
+      )`;
+
+    // Snapshots
+    await sql`
+      CREATE TABLE IF NOT EXISTS snapshots (
+        id TEXT PRIMARY KEY,
+        whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+        name TEXT NOT NULL DEFAULT 'Snapshot',
+        actions_data JSONB NOT NULL,
+        created_at BIGINT NOT NULL
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_snapshots_whiteboard ON snapshots(whiteboard_id)`;
+
+    // Broadcast messages
+    await sql`
+      CREATE TABLE IF NOT EXISTS broadcasts (
+        id SERIAL PRIMARY KEY,
+        whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE,
+        message TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_broadcasts_whiteboard ON broadcasts(whiteboard_id, created_at)`;
+
     schemaReady = true;
   } catch (e) {
     console.error('Schema initialization failed:', e);

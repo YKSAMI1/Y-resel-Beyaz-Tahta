@@ -1,7 +1,13 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { WhiteboardSettings } from '@/types';
+
+interface SnapshotInfo {
+  id: string;
+  name: string;
+  timestamp: number;
+}
 
 interface SettingsPanelProps {
   settings: WhiteboardSettings;
@@ -9,9 +15,16 @@ interface SettingsPanelProps {
   onClose: () => void;
   onDelete: () => void;
   onClear: () => void;
+  onSaveSnapshot?: (name: string) => void;
+  onLoadSnapshot?: (snapshotId: string) => void;
+  boardId?: string;
 }
 
-export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, onClear }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, onClear, onSaveSnapshot, onLoadSnapshot, boardId }: SettingsPanelProps) {
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
+  const [snapshotName, setSnapshotName] = useState('');
+  const [loadingSnaps, setLoadingSnaps] = useState(false);
+
   const backgrounds = [
     { id: 'white', label: 'Beyaz', color: '#ffffff' },
     { id: 'black', label: 'Siyah', color: '#1a1a1a' },
@@ -19,6 +32,30 @@ export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, o
     { id: 'dots', label: 'Noktalı', color: '#f8f9fa' },
     { id: 'grid', label: 'Kareli', color: '#f0f0f0' },
   ];
+
+  const loadSnapshots = async () => {
+    if (!boardId) return;
+    setLoadingSnaps(true);
+    try {
+      const res = await fetch(`/api/whiteboard/${boardId}/snapshots`);
+      if (res.ok) {
+        const data = await res.json();
+        setSnapshots(data.snapshots || []);
+      }
+    } catch { /* ignore */ }
+    setLoadingSnaps(false);
+  };
+
+  useEffect(() => {
+    if (boardId) loadSnapshots();
+  }, [boardId]);
+
+  const handleSaveSnapshot = () => {
+    const name = snapshotName.trim() || `Snapshot ${new Date().toLocaleString('tr-TR')}`;
+    onSaveSnapshot?.(name);
+    setSnapshotName('');
+    setTimeout(loadSnapshots, 500);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
@@ -72,6 +109,50 @@ export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, o
               <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform mx-0.5 ${settings.showCursors ? 'translate-x-5' : ''}`} />
             </button>
           </div>
+
+          {/* ===== SNAPSHOTS ===== */}
+          {onSaveSnapshot && (
+            <div className="border-t border-gray-100 pt-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-3">📸 Snapshot (Anlık Kayıt)</h4>
+              <p className="text-xs text-gray-400 mb-3">Kanusun şu anki halini kaydedin. Sorun yaşadığınızda geri dönebilirsiniz.</p>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={snapshotName}
+                  onChange={e => setSnapshotName(e.target.value)}
+                  placeholder="Snapshot adı (isteğe bağlı)"
+                  className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onKeyDown={e => e.key === 'Enter' && handleSaveSnapshot()}
+                />
+                <button
+                  onClick={handleSaveSnapshot}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  💾 Kaydet
+                </button>
+              </div>
+              {/* Snapshot list */}
+              {snapshots.length > 0 && (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {snapshots.map(snap => (
+                    <div key={snap.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
+                      <div>
+                        <div className="text-xs font-medium text-gray-700">{snap.name}</div>
+                        <div className="text-[10px] text-gray-400">{new Date(snap.timestamp).toLocaleString('tr-TR')}</div>
+                      </div>
+                      <button
+                        onClick={() => onLoadSnapshot?.(snap.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-lg font-medium hover:bg-green-200 transition-colors"
+                      >
+                        ↩ Yükle
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {loadingSnaps && <p className="text-xs text-gray-400 mt-2">Yükleniyor...</p>}
+            </div>
+          )}
 
           {/* Danger zone */}
           <div className="border-t border-gray-100 pt-4 space-y-2">

@@ -13,6 +13,8 @@ interface StoredWhiteboard {
   participants: Map<string, Participant>;
   actions: DrawAction[];
   deletedIds: { id: string; timestamp: number }[];
+  snapshots: { id: string; name: string; actions: DrawAction[]; timestamp: number }[];
+  deleteCounts: Map<string, { count: number; firstDeleteAt: number; blockedUntil: number }>;
 }
 
 class InMemoryStore {
@@ -25,7 +27,7 @@ class InMemoryStore {
       layers: [{ id: 'layer-default', name: 'Varsayilan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
       blockedUsers: [],
     };
-    this.whiteboards.set(id, { whiteboard, participants: new Map(), actions: [], deletedIds: [] });
+    this.whiteboards.set(id, { whiteboard, participants: new Map(), actions: [], deletedIds: [], snapshots: [], deleteCounts: new Map() });
     return whiteboard;
   }
 
@@ -85,6 +87,93 @@ class InMemoryStore {
     if (!stored) return;
     stored.actions = [];
   }
+
+  // Abuse tracking
+  async recordDelete(whiteboardId: string, userId: string): Promise<{ blocked: boolean; blockedUntil: number }> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return { blocked: false, blockedUntil: 0 };
+    const now = Date.now();
+    const WINDOW = 60 * 1000; // 1 minute window
+    const THRESHOLD = 15; // max deletes per window
+    const BAN_DURATION = 5 * 60 * 1000; // 5 min ban
+    let entry = stored.deleteCounts.get(userId);
+    if (!entry || now - entry.firstDeleteAt > WINDOW) {
+      entry = { count: 1, firstDeleteAt: now, blockedUntil: 0 };
+    } else {
+      entry.count++;
+    }
+    if (entry.count >= THRESHOLD && entry.blockedUntil < now) {
+      entry.blockedUntil = now + BAN_DURATION;
+    }
+    stored.deleteCounts.set(userId, entry);
+    return { blocked: entry.blockedUntil > now, blockedUntil: entry.blockedUntil };
+  }
+
+  async isUserBlocked(whiteboardId: string, userId: string): Promise<boolean> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return false;
+    const entry = stored.deleteCounts.get(userId);
+    return entry ? entry.blockedUntil > Date.now() : false;
+  }
+
+  async undoUserDeletes(whiteboardId: string, userId: string): Promise<void> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return;
+    // Find actions by this user that were deleted recently
+    const recentDeletions = stored.deletedIds.filter(d => {
+      const action = stored.actions.find(a => a.id === d.id);
+      return !action; // action was deleted
+    });
+    // We can't easily know who deleted what, so we just unblock
+    stored.deleteCounts.delete(userId);
+  }
+
+  // Snapshots
+  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[]): Promise<{ id: string; name: string; timestamp: number }> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) throw new Error('Whiteboard not found');
+    const snap = { id: 'snap_' + Date.now(), name, actions: JSON.parse(JSON.stringify(actions)), timestamp: Date.now() };
+    stored.snapshots.push(snap);
+    if (stored.snapshots.length > 20) stored.snapshots = stored.snapshots.slice(-20);
+    return { id: snap.id, name: snap.name, timestamp: snap.timestamp };
+  }
+
+  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number }[]> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return [];
+    return stored.snapshots.map(s => ({ id: s.id, name: s.name, timestamp: s.timestamp }));
+  }
+
+  async loadSnapshot(whiteboardId: string, snapshotId: string): Promise<DrawAction[] | null> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return null;
+    const snap = stored.snapshots.find(s => s.id === snapshotId);
+    return snap ? snap.actions : null;
+  }
+
+  async deleteSnapshot(whiteboardId: string, snapshotId: string): Promise<void> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return;
+    stored.snapshots = stored.snapshots.filter(s => s.id !== snapshotId);
+  }
+
+  // Broadcast messages
+  async getBroadcasts(whiteboardId: string, since: number = 0): Promise<{ message: string; timestamp: number }[]> {
+    return []; // In-memory doesn't persist broadcasts
+  }
+
+  async addBroadcast(whiteboardId: string, message: string): Promise<void> {
+    // No-op for in-memory
+  }
+
+  // List all whiteboards (admin)
+  async listWhiteboards(): Promise<{ id: string; name: string; createdAt: number; actionCount: number }[]> {
+    const result: { id: string; name: string; createdAt: number; actionCount: number }[] = [];
+    for (const [id, stored] of this.whiteboards) {
+      result.push({ id, name: stored.whiteboard.name, createdAt: stored.whiteboard.createdAt, actionCount: stored.actions.length });
+    }
+    return result;
+  }
 }
 
 // Buyuk alanlari (base64 fotograflar) veritabanindan cikar
@@ -130,6 +219,7 @@ class PostgresStore {
         blockedUsers: row.blocked_users || [],
       },
       participants: new Map(), actions: [], deletedIds: [],
+      snapshots: [], deleteCounts: new Map(),
     };
   }
 
@@ -219,6 +309,88 @@ class PostgresStore {
     await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
     await sql`DELETE FROM deleted_ids WHERE whiteboard_id = ${id}`;
+  }
+
+  // Abuse tracking
+  async recordDelete(whiteboardId: string, userId: string): Promise<{ blocked: boolean; blockedUntil: number }> {
+    await this.ensureReady();
+    const now = Date.now();
+    const WINDOW = 60 * 1000;
+    const THRESHOLD = 15;
+    const BAN_DURATION = 5 * 60 * 1000;
+    const existing = await sql`SELECT count, first_delete_at, blocked_until FROM abuse_log WHERE whiteboard_id = ${whiteboardId} AND user_id = ${userId} AND first_delete_at > ${now - WINDOW}`;
+    let count = 1;
+    let firstDeleteAt = now;
+    let blockedUntil = 0;
+    if (existing.rows.length > 0) {
+      count = existing.rows[0].count + 1;
+      firstDeleteAt = existing.rows[0].first_delete_at;
+      blockedUntil = existing.rows[0].blocked_until || 0;
+    }
+    if (count >= THRESHOLD && blockedUntil < now) {
+      blockedUntil = now + BAN_DURATION;
+    }
+    await sql`INSERT INTO abuse_log (whiteboard_id, user_id, count, first_delete_at, blocked_until, updated_at) VALUES (${whiteboardId}, ${userId}, ${count}, ${firstDeleteAt}, ${blockedUntil}, ${now}) ON CONFLICT (whiteboard_id, user_id) DO UPDATE SET count = ${count}, blocked_until = ${blockedUntil}, updated_at = ${now}`;
+    return { blocked: blockedUntil > now, blockedUntil };
+  }
+
+  async isUserBlocked(whiteboardId: string, userId: string): Promise<boolean> {
+    await this.ensureReady();
+    const result = await sql`SELECT blocked_until FROM abuse_log WHERE whiteboard_id = ${whiteboardId} AND user_id = ${userId}`;
+    if (result.rows.length === 0) return false;
+    return (result.rows[0].blocked_until || 0) > Date.now();
+  }
+
+  async undoUserDeletes(whiteboardId: string, userId: string): Promise<void> {
+    await this.ensureReady();
+    await sql`DELETE FROM abuse_log WHERE whiteboard_id = ${whiteboardId} AND user_id = ${userId}`;
+  }
+
+  // Snapshots
+  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[]): Promise<{ id: string; name: string; timestamp: number }> {
+    await this.ensureReady();
+    const snapId = 'snap_' + Date.now();
+    const now = Date.now();
+    await sql`INSERT INTO snapshots (id, whiteboard_id, name, actions_data, created_at) VALUES (${snapId}, ${whiteboardId}, ${name}, ${JSON.stringify(actions.slice(-5000))}, ${now})`;
+    return { id: snapId, name, timestamp: now };
+  }
+
+  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number }[]> {
+    await this.ensureReady();
+    const result = await sql`SELECT id, name, created_at FROM snapshots WHERE whiteboard_id = ${whiteboardId} ORDER BY created_at DESC`;
+    return result.rows.map((r: any) => ({ id: r.id, name: r.name, timestamp: r.created_at }));
+  }
+
+  async loadSnapshot(whiteboardId: string, snapshotId: string): Promise<DrawAction[] | null> {
+    await this.ensureReady();
+    const result = await sql`SELECT actions_data FROM snapshots WHERE id = ${snapshotId} AND whiteboard_id = ${whiteboardId}`;
+    if (result.rows.length === 0) return null;
+    const data = result.rows[0].actions_data;
+    return typeof data === 'string' ? JSON.parse(data) : data;
+  }
+
+  async deleteSnapshot(whiteboardId: string, snapshotId: string): Promise<void> {
+    await this.ensureReady();
+    await sql`DELETE FROM snapshots WHERE id = ${snapshotId} AND whiteboard_id = ${whiteboardId}`;
+  }
+
+  // Broadcast messages
+  async getBroadcasts(whiteboardId: string, since: number = 0): Promise<{ message: string; timestamp: number }[]> {
+    await this.ensureReady();
+    const result = await sql`SELECT message, created_at FROM broadcasts WHERE whiteboard_id = ${whiteboardId} AND created_at > ${since} ORDER BY created_at`;
+    return result.rows.map((r: any) => ({ message: r.message, timestamp: r.created_at }));
+  }
+
+  async addBroadcast(whiteboardId: string, message: string): Promise<void> {
+    await this.ensureReady();
+    await sql`INSERT INTO broadcasts (whiteboard_id, message, created_at) VALUES (${whiteboardId}, ${message}, ${Date.now()})`;
+  }
+
+  // List all whiteboards (admin)
+  async listWhiteboards(): Promise<{ id: string; name: string; createdAt: number; actionCount: number }[]> {
+    await this.ensureReady();
+    const result = await sql`SELECT w.id, w.name, w.created_at, COUNT(a.id) as action_count FROM whiteboards w LEFT JOIN actions a ON a.whiteboard_id = w.id GROUP BY w.id ORDER BY w.created_at DESC`;
+    return result.rows.map((r: any) => ({ id: r.id, name: r.name, createdAt: r.created_at, actionCount: parseInt(r.action_count) || 0 }));
   }
 }
 

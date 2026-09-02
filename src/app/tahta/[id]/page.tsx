@@ -14,6 +14,7 @@ import ShareModal from '@/components/ShareModal';
 import HistoryPanel from '@/components/HistoryPanel';
 import ConnectionStatus from '@/components/ConnectionStatus';
 import ToastContainer, { showToast } from '@/components/Toast';
+import Tutorial from '@/components/Tutorial';
 
 interface WhiteboardData {
   id: string;
@@ -85,6 +86,13 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const [showSettings, setShowSettings] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(true);
+  // Broadcast messages
+  const [broadcasts, setBroadcasts] = useState<{ message: string; timestamp: number }[]>([]);
+  const [broadcastBanner, setBroadcastBanner] = useState<string | null>(null);
+  // Abuse block state
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedUntil, setBlockedUntil] = useState(0);
 
   // ===== Nickname =====
   useEffect(() => {
@@ -205,6 +213,16 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             setSyncedTimestamp(prev => Math.max(prev, maxTs));
           }
         }
+        // Check broadcasts
+        const bRes = await fetch(`/api/whiteboard/${id}/broadcasts?since=${Date.now() - 10000}`);
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          if (bData.broadcasts && bData.broadcasts.length > 0) {
+            const latest = bData.broadcasts[bData.broadcasts.length - 1];
+            setBroadcastBanner(latest.message);
+            setTimeout(() => setBroadcastBanner(null), 8000);
+          }
+        }
       } catch { /* ignore network errors */ }
     }, 2000);
 
@@ -253,18 +271,31 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, [syncActionToServer]);
 
   const handleDeleteAction = useCallback(async (actionId: string) => {
+    if (isBlocked) {
+      showToast('Engellendiniz — bir sure bekleyin', 'error');
+      return;
+    }
     const current = actionsRef.current;
     const removed = current.find(a => a.id === actionId);
     if (removed) {
-      // Kimin olursa olsun undo stack'e ekle
       undoStackRef.current.push({ type: 'delete', action: removed });
       redoStackRef.current = [];
       pushUndoCount(); pushRedoCount();
     }
     pendingDeletesRef.current.add(actionId);
     setActions(prev => prev.filter(a => a.id !== actionId));
-    try { await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' }); } catch { /* ignore */ }
-  }, [id]);
+    try {
+      const res = await fetch(`/api/whiteboard/${id}/actions/${actionId}?userId=${clientIdRef.current}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.blocked) {
+        setIsBlocked(true);
+        setBlockedUntil(data.blockedUntil);
+        showToast('⚠️ Cok fazla silme! 5 dakika engellendiniz.', 'error');
+        // Auto-unblock after ban expires
+        setTimeout(() => { setIsBlocked(false); setBlockedUntil(0); }, data.blockedUntil - Date.now());
+      }
+    } catch { /* ignore */ }
+  }, [id, isBlocked]);
 
   const handleUndo = useCallback(() => {
     const stack = undoStackRef.current;
@@ -326,6 +357,32 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ bulk: current }),
       });
     } catch { /* network error */ }
+  }, [id]);
+
+  // ===== SNAPSHOT =====
+  const handleSaveSnapshot = useCallback(async (name: string) => {
+    try {
+      const res = await fetch(`/api/whiteboard/${id}/snapshots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, actions: actionsRef.current }),
+      });
+      if (res.ok) { showToast('Snapshot kaydedildi!', 'success'); }
+      else { showToast('Snapshot kaydedilemedi', 'error'); }
+    } catch { showToast('Snapshot kaydedilemedi', 'error'); }
+  }, [id]);
+
+  const handleLoadSnapshot = useCallback(async (snapshotId: string) => {
+    try {
+      const res = await fetch(`/api/whiteboard/${id}/snapshots/${snapshotId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.actions) {
+          setActions(data.actions);
+          showToast('Snapshot yüklendi!', 'success');
+        }
+      }
+    } catch { showToast('Snapshot yüklenemedi', 'error'); }
   }, [id]);
 
   // Export
@@ -670,9 +727,35 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
 
 
+      {/* Broadcast Banner */}
+      {broadcastBanner && (
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 z-50 bg-amber-500 text-white px-6 py-3 rounded-xl shadow-lg animate-bounce max-w-md text-center">
+          <span className="text-sm font-semibold">📢 {broadcastBanner}</span>
+        </div>
+      )}
+
+      {/* Block Banner */}
+      {isBlocked && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg max-w-md text-center">
+          <span className="text-sm font-semibold">🚫 Engellendiniz — çok fazla silme işlemi yaptınız</span>
+        </div>
+      )}
+
       {/* Modals */}
-      {showSettings && <SettingsPanel settings={settings} onUpdate={(updates) => setSettings(prev => ({ ...prev, ...updates }))} onClose={() => setShowSettings(false)} onDelete={() => { if (confirm('Bu tahtayı silmek istediğinize emin misiniz?')) { showToast('Tahta silindi', 'success'); window.location.href = '/'; } }}                onClear={() => { if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) { setActions([]); undoStackRef.current = []; redoStackRef.current = []; setUndoCount(0); setRedoCount(0); showToast('Tahta temizlendi', 'success'); } }} />}
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onUpdate={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
+          onClose={() => setShowSettings(false)}
+          onDelete={() => { if (confirm('Bu tahtayı silmek istediğinize emin misiniz?')) { showToast('Tahta silindi', 'success'); window.location.href = '/'; } }}
+          onClear={() => { if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) { setActions([]); undoStackRef.current = []; redoStackRef.current = []; setUndoCount(0); setRedoCount(0); showToast('Tahta temizlendi', 'success'); } }}
+          onSaveSnapshot={handleSaveSnapshot}
+          onLoadSnapshot={handleLoadSnapshot}
+          boardId={id}
+        />
+      )}
       {showShare && <ShareModal boardId={id} onClose={() => setShowShare(false)} />}
+      {showTutorial && <Tutorial onDone={() => setShowTutorial(false)} />}
     </div>
   );
 }
