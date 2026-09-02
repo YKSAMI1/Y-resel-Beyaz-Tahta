@@ -10,7 +10,7 @@
 // Neon fallback — Vercel'de env var yoksa bu kullanilir
 const dynamicEnv = process.env as Record<string, string | undefined>;
 if (!dynamicEnv['POSTGRES_URL']) {
-  dynamicEnv['POSTGRES_URL'] = 'postgresql://neondb_owner:npg_EplT5vBmrPJ0@ep-holy-bread-b1pcur1x-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require';
+  dynamicEnv['POSTGRES_URL'] = 'postgresql://neondb_owner:npg_EcYxn0gHfw8V@ep-blue-thunder-b1s3w3br-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
