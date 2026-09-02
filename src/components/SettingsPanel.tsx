@@ -7,6 +7,8 @@ interface SnapshotInfo {
   id: string;
   name: string;
   timestamp: number;
+  createdBy: string;
+  isAuto: boolean;
 }
 
 interface SettingsPanelProps {
@@ -15,12 +17,14 @@ interface SettingsPanelProps {
   onClose: () => void;
   onDelete: () => void;
   onClear: () => void;
-  onSaveSnapshot?: (name: string) => void;
+  onSaveSnapshot?: (name: string, createdBy?: string) => void;
   onLoadSnapshot?: (snapshotId: string) => void;
+  onDeleteSnapshot?: (snapshotId: string) => void;
   boardId?: string;
+  nickname?: string;
 }
 
-export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, onClear, onSaveSnapshot, onLoadSnapshot, boardId }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, onClear, onSaveSnapshot, onLoadSnapshot, onDeleteSnapshot, boardId, nickname }: SettingsPanelProps) {
   const [snapshots, setSnapshots] = useState<SnapshotInfo[]>([]);
   const [snapshotName, setSnapshotName] = useState('');
   const [loadingSnaps, setLoadingSnaps] = useState(false);
@@ -52,10 +56,13 @@ export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, o
 
   const handleSaveSnapshot = () => {
     const name = snapshotName.trim() || `Snapshot ${new Date().toLocaleString('tr-TR')}`;
-    onSaveSnapshot?.(name);
+    onSaveSnapshot?.(name, nickname || 'unknown');
     setSnapshotName('');
     setTimeout(loadSnapshots, 500);
   };
+
+  const userSnapshots = snapshots.filter(s => !s.isAuto);
+  const autoSnapshots = snapshots.filter(s => s.isAuto);
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
@@ -131,23 +138,44 @@ export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, o
                   💾 Kaydet
                 </button>
               </div>
-              {/* Snapshot list */}
-              {snapshots.length > 0 && (
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {snapshots.map(snap => (
-                    <div key={snap.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="text-xs font-medium text-gray-700">{snap.name}</div>
-                        <div className="text-[10px] text-gray-400">{new Date(snap.timestamp).toLocaleString('tr-TR')}</div>
+              {/* Kullanıcı Snapshotları */}
+              {userSnapshots.length > 0 && (
+                <div className="mt-3">
+                  <h5 className="text-xs font-medium text-gray-500 mb-1">👤 Senin Kayıtların</h5>
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {userSnapshots.map(snap => (
+                      <div key={snap.id} className="flex items-center justify-between px-3 py-2 bg-blue-50 rounded-lg">
+                        <div>
+                          <div className="text-xs font-medium text-gray-700">{snap.name}</div>
+                          <div className="text-[10px] text-gray-400">{snap.createdBy} • {new Date(snap.timestamp).toLocaleString('tr-TR')}</div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => onLoadSnapshot?.(snap.id)} className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-lg font-medium hover:bg-green-200">↩ Yükle</button>
+                          <button onClick={() => { onDeleteSnapshot?.(snap.id); setTimeout(loadSnapshots, 300); }} className="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-lg font-medium hover:bg-red-200">🗑️</button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => onLoadSnapshot?.(snap.id)}
-                        className="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-lg font-medium hover:bg-green-200 transition-colors"
-                      >
-                        ↩ Yükle
-                      </button>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Otomatik Snapshotlar */}
+              {autoSnapshots.length > 0 && (
+                <div className="mt-3">
+                  <h5 className="text-xs font-medium text-gray-500 mb-1">🤖 Otomatik Kayıtlar (15 dk)</h5>
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {autoSnapshots.map(snap => (
+                      <div key={snap.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg">
+                        <div>
+                          <div className="text-xs font-medium text-gray-700">{snap.name}</div>
+                          <div className="text-[10px] text-gray-400">{new Date(snap.timestamp).toLocaleString('tr-TR')}</div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => onLoadSnapshot?.(snap.id)} className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-lg font-medium hover:bg-green-200">↩ Yükle</button>
+                          <button onClick={() => { onDeleteSnapshot?.(snap.id); setTimeout(loadSnapshots, 300); }} className="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-lg font-medium hover:bg-red-200">🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {loadingSnaps && <p className="text-xs text-gray-400 mt-2">Yükleniyor...</p>}

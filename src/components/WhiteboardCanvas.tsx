@@ -23,7 +23,9 @@ interface WhiteboardCanvasProps {
   onToolChange?: (tool: Tool) => void;
   onCanvasInteract?: () => void;
   onMoveSelected?: (dx: number, dy: number) => void;
+  onMoveCommit?: () => void;
   onUpdateActions?: (updater: (prev: DrawAction[]) => DrawAction[]) => void;
+  onUpdateCommit?: (oldPositions: Map<string, {x:number;y:number}[]>) => void;
   onSyncActions?: () => void;
   clientId?: string;
 }
@@ -493,7 +495,7 @@ function generateLassoBitmap(
 let drawAllActionsGlobal: (ctx: CanvasRenderingContext2D, acts: DrawAction[], lrs: Layer[], _z: number) => void;
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(function WhiteboardCanvas(
-  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onUpdateActions, onSyncActions, clientId = 'self' },
+  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onMoveCommit, onUpdateActions, onUpdateCommit, onSyncActions, clientId = 'self' },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -530,6 +532,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const origPointsRef = useRef<Map<string, {x:number;y:number}[]>>(new Map()); // original points before multi-rotate
   const prevAngleRef = useRef(0); // previous angle for incremental rotation
   const accumulatedRotRef = useRef(0); // total rotation accumulated since drag start
+  const resizeOldPointsRef = useRef<Map<string, {x:number;y:number}[]>>(new Map());
   // Lasso fill state
   const [isLassoing, setIsLassoing] = useState(false);
   const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
@@ -940,6 +943,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           ];
           for (const [name, cx, cy] of corners) {
             if (Math.hypot(rpt.x - cx, rpt.y - cy) < handleR) {
+              // Save old points for undo
+              const oldPts = new Map<string, {x:number;y:number}[]>();
+              for (const a of actions) { if (selectedIds.includes(a.id)) oldPts.set(a.id, a.points.map(p => ({...p}))); }
+              resizeOldPointsRef.current = oldPts;
               setIsResizing(true);
               setResizeHandle(name);
               setResizeStart({ x: pt.x, y: pt.y, bbox: ub });
@@ -1194,8 +1201,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
     if (isPanning) { setIsPanning(false); isPanningRef.current = false; return; }
 
     // SELECT: end rotate
-    // SELECT: end rotation
+    // SELECT: end rotation — commit undo
     if (tool === 'select' && isRotating) {
+      if (origPointsRef.current.size > 0) {
+        onUpdateCommit?.(origPointsRef.current);
+      }
       setIsRotating(false);
       setRotateStart(null);
       setGroupRotation(0);
@@ -1205,8 +1215,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       return;
     }
 
-    // SELECT: end resize
+    // SELECT: end resize — commit undo
     if (tool === 'select' && isResizing) {
+      if (resizeOldPointsRef.current.size > 0) {
+        onUpdateCommit?.(resizeOldPointsRef.current);
+      }
+      resizeOldPointsRef.current = new Map();
       setIsResizing(false);
       setResizeHandle(null);
       setResizeStart(null);
@@ -1216,7 +1230,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
     // SELECT: end drag
     if (tool === 'select') {
-      if (isDragging) { setIsDragging(false); setDragStart(null); onSyncActions?.(); }
+      if (isDragging) { setIsDragging(false); setDragStart(null); onMoveCommit?.(); onSyncActions?.(); }
       if (isSelecting && selectionBox) {
         setIsSelecting(false);
         const selected: string[] = [];

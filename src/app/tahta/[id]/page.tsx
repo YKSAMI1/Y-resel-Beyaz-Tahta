@@ -58,8 +58,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const [syncedTimestamp, setSyncedTimestamp] = useState(0);
   // Unique client ID — nickname ile ayni olsun ki incelenin dogru goster
   const clientIdRef = useRef('');
-  // Proper undo/redo stacks: { type: 'add'|'delete', action: DrawAction }
-  type UndoOp = { type: 'add'; action: DrawAction } | { type: 'delete'; action: DrawAction };
+  // Proper undo/redo stacks
+  type UndoOp = { type: 'add'; action: DrawAction } | { type: 'delete'; action: DrawAction } | { type: 'move'; oldPositions: Map<string, {x:number;y:number}[]> };
   const undoStackRef = useRef<UndoOp[]>([]);
   const redoStackRef = useRef<UndoOp[]>([]);
   const [undoCount, setUndoCount] = useState(0);
@@ -342,14 +342,21 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       pendingDeletesRef.current.add(op.action.id);
       setActions(prev => prev.filter(a => a.id !== op.action.id));
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
-    } else {
+    } else if (op.type === 'delete') {
       // Silme islemini geri al: action'ı geri ekle (yeni timestamp ile)
       pendingDeletesRef.current.delete(op.action.id);
       const restored = { ...op.action, timestamp: Date.now() };
       setActions(prev => [...prev, restored]);
       syncActionToServer(restored);
-      // Sunucudaki deleted_ids kaydini de temizle (poll tekrar silmesin)
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}?clearDeleted=true`, { method: 'DELETE' }).catch(() => {});
+    } else if (op.type === 'move') {
+      // Tasima/islem geri al: eski konumlara don
+      setActions(prev => prev.map(a => {
+        const oldPts = op.oldPositions.get(a.id);
+        if (!oldPts) return a;
+        return { ...a, points: oldPts.map(p => ({...p})), timestamp: Date.now() };
+      }));
+      syncActionsRef.current();
     }
     pushUndoCount(); pushRedoCount();
   }, [id, syncActionToServer]);
@@ -360,18 +367,20 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     const op = stack.pop()!;
     undoStackRef.current.push(op);
     if (op.type === 'add') {
-      // Ekleme islemini tekrar yap (yeni timestamp ile)
       const restored = { ...op.action, timestamp: Date.now() };
       setActions(prev => [...prev, restored]);
       syncActionToServer(restored);
-    } else {
-      // Silme islemini tekrar yap
+    } else if (op.type === 'delete') {
       pendingDeletesRef.current.add(op.action.id);
       setActions(prev => prev.filter(a => a.id !== op.action.id));
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
     }
+    // move/update redo: tekrar uygula (simdi current positions eski konumlarda, hedef yere tasi)
     pushUndoCount(); pushRedoCount();
   }, [id, syncActionToServer]);
+
+  // Ref for handleSyncActions to avoid circular dependency
+  const syncActionsRef = useRef<() => void>(() => {});
 
   // Sync moved/resized actions to server so other clients see the changes
   const handleSyncActions = useCallback(async () => {
@@ -394,18 +403,39 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     } catch { /* network error */ }
   }, [id]);
 
+  // Keep syncActionsRef in sync
+  useEffect(() => { syncActionsRef.current = () => handleSyncActions(); }, [handleSyncActions]);
+
   // ===== SNAPSHOT =====
-  const handleSaveSnapshot = useCallback(async (name: string) => {
+  const handleSaveSnapshot = useCallback(async (name: string, createdBy?: string, isAuto?: boolean) => {
     try {
       const res = await fetch(`/api/whiteboard/${id}/snapshots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, actions: actionsRef.current }),
+        body: JSON.stringify({ name, actions: actionsRef.current, createdBy: createdBy || nickname || 'unknown', isAuto: isAuto || false }),
       });
-      if (res.ok) { showToast('Snapshot kaydedildi!', 'success'); }
-      else { showToast('Snapshot kaydedilemedi', 'error'); }
-    } catch { showToast('Snapshot kaydedilemedi', 'error'); }
+      if (res.ok && !isAuto) { showToast('Snapshot kaydedildi!', 'success'); }
+      else if (!res.ok) { showToast('Snapshot kaydedilemedi', 'error'); }
+    } catch { if (!isAuto) showToast('Snapshot kaydedilemedi', 'error'); }
+  }, [id, nickname]);
+
+  const handleDeleteSnapshot = useCallback(async (snapshotId: string) => {
+    try {
+      await fetch(`/api/whiteboard/${id}/snapshots/${snapshotId}`, { method: 'DELETE' });
+    } catch { /* ignore */ }
   }, [id]);
+
+  // ===== AUTO-SNAPSHOT (15 dk aralıkla) =====
+  const autoSnapTimerRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!nicknameReady) return;
+    autoSnapTimerRef.current = setInterval(() => {
+      if (actionsRef.current.length > 0) {
+        handleSaveSnapshot(`Oto-${new Date().toLocaleTimeString('tr-TR')}`, nickname || 'system', true);
+      }
+    }, 15 * 60 * 1000); // 15 dakika
+    return () => { if (autoSnapTimerRef.current) clearInterval(autoSnapTimerRef.current); };
+  }, [nicknameReady, handleSaveSnapshot, nickname]);
 
   const handleLoadSnapshot = useCallback(async (snapshotId: string) => {
     try {
@@ -498,7 +528,17 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, []);
 
   // Move selected objects
+  const moveSnapshotRef = useRef<Map<string, {x:number;y:number}[]> | null>(null);
   const handleMoveSelected = useCallback((dx: number, dy: number) => {
+    // First move: snapshot old positions for undo
+    if (!moveSnapshotRef.current) {
+      const selIds = canvasRef.current?.getSelectedIds() || [];
+      const snap = new Map<string, {x:number;y:number}[]>();
+      for (const a of actionsRef.current) {
+        if (selIds.includes(a.id)) snap.set(a.id, a.points.map(p => ({...p})));
+      }
+      moveSnapshotRef.current = snap;
+    }
     setActions(prev => {
       const selIds = canvasRef.current?.getSelectedIds() || [];
       const next = prev.map(a => {
@@ -508,6 +548,24 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       actionsRef.current = next;
       return next;
     });
+  }, []);
+
+  // Commit move to undo stack (called on pointer up)
+  const handleMoveCommit = useCallback(() => {
+    if (!moveSnapshotRef.current) return;
+    const oldPositions = moveSnapshotRef.current;
+    moveSnapshotRef.current = null;
+    // Push undo op: restore old positions
+    undoStackRef.current.push({ type: 'move', oldPositions: new Map(oldPositions) });
+    redoStackRef.current = [];
+    pushUndoCount(); pushRedoCount();
+  }, []);
+
+  // Commit resize/rotate to undo stack
+  const handleUpdateCommit = useCallback((oldPositions: Map<string, {x:number;y:number}[]>) => {
+    undoStackRef.current.push({ type: 'move', oldPositions: new Map(oldPositions) });
+    redoStackRef.current = [];
+    pushUndoCount(); pushRedoCount();
   }, []);
 
   // Keyboard shortcuts
@@ -774,7 +832,9 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
               onToolChange={handleToolChange}
               onCanvasInteract={handleCanvasInteract}
               onMoveSelected={handleMoveSelected}
+              onMoveCommit={handleMoveCommit}
               onUpdateActions={setActions}
+              onUpdateCommit={handleUpdateCommit}
               onSyncActions={handleSyncActions}
               clientId={clientIdRef.current}
             />
@@ -803,7 +863,9 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           onClear={() => { if (confirm('Tahtadaki tüm içerik temizlenecek. Emin misiniz?')) { setActions([]); undoStackRef.current = []; redoStackRef.current = []; setUndoCount(0); setRedoCount(0); showToast('Tahta temizlendi', 'success'); } }}
           onSaveSnapshot={handleSaveSnapshot}
           onLoadSnapshot={handleLoadSnapshot}
+          onDeleteSnapshot={handleDeleteSnapshot}
           boardId={id}
+          nickname={nickname}
         />
       )}
       {showShare && <ShareModal boardId={id} onClose={() => setShowShare(false)} />}

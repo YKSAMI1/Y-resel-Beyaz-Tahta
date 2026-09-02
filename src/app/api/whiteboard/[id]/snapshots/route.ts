@@ -23,11 +23,11 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, actions } = body;
+    const { name, actions, createdBy, isAuto } = body;
     if (!name || !actions) {
       return NextResponse.json({ error: 'İsim ve aksiyonlar gerekli.' }, { status: 400 });
     }
-    const snap = await whiteboardStore.saveSnapshot(id, name, actions);
+    const snap = await whiteboardStore.saveSnapshot(id, name, actions, createdBy || 'unknown', isAuto || false);
     return NextResponse.json({ snapshot: snap });
   } catch {
     return NextResponse.json({ error: 'Snapshot kaydedilemedi.' }, { status: 500 });

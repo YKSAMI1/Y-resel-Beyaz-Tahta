@@ -13,7 +13,7 @@ interface StoredWhiteboard {
   participants: Map<string, Participant>;
   actions: DrawAction[];
   deletedIds: { id: string; timestamp: number }[];
-  snapshots: { id: string; name: string; actions: DrawAction[]; timestamp: number }[];
+  snapshots: { id: string; name: string; actions: DrawAction[]; timestamp: number; createdBy: string; isAuto: boolean }[];
   deleteCounts: Map<string, { count: number; firstDeleteAt: number; blockedUntil: number }>;
   activeUsers: Map<string, { nickname: string; lastSeen: number; color: string }>;
 }
@@ -130,19 +130,26 @@ class InMemoryStore {
   }
 
   // Snapshots
-  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[]): Promise<{ id: string; name: string; timestamp: number }> {
+  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[], createdBy: string = 'unknown', isAuto: boolean = false): Promise<{ id: string; name: string; timestamp: number }> {
     const stored = this.whiteboards.get(whiteboardId);
     if (!stored) throw new Error('Whiteboard not found');
-    const snap = { id: 'snap_' + Date.now(), name, actions: JSON.parse(JSON.stringify(actions)), timestamp: Date.now() };
+    const snap = { id: 'snap_' + Date.now(), name, actions: JSON.parse(JSON.stringify(actions)), timestamp: Date.now(), createdBy, isAuto };
     stored.snapshots.push(snap);
-    if (stored.snapshots.length > 20) stored.snapshots = stored.snapshots.slice(-20);
+    // Auto-snapshots: max 15, delete oldest. User snapshots: unlimited
+    const autoSnaps = stored.snapshots.filter(s => s.isAuto);
+    const userSnaps = stored.snapshots.filter(s => !s.isAuto);
+    if (autoSnaps.length > 15) {
+      const toRemove = autoSnaps.slice(0, autoSnaps.length - 15);
+      const removeIds = new Set(toRemove.map(s => s.id));
+      stored.snapshots = stored.snapshots.filter(s => !removeIds.has(s.id));
+    }
     return { id: snap.id, name: snap.name, timestamp: snap.timestamp };
   }
 
-  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number }[]> {
+  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number; createdBy: string; isAuto: boolean }[]> {
     const stored = this.whiteboards.get(whiteboardId);
     if (!stored) return [];
-    return stored.snapshots.map(s => ({ id: s.id, name: s.name, timestamp: s.timestamp }));
+    return stored.snapshots.map(s => ({ id: s.id, name: s.name, timestamp: s.timestamp, createdBy: s.createdBy, isAuto: s.isAuto }));
   }
 
   async loadSnapshot(whiteboardId: string, snapshotId: string): Promise<DrawAction[] | null> {
@@ -380,18 +387,23 @@ class PostgresStore {
   }
 
   // Snapshots
-  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[]): Promise<{ id: string; name: string; timestamp: number }> {
+  async saveSnapshot(whiteboardId: string, name: string, actions: DrawAction[], createdBy: string = 'unknown', isAuto: boolean = false): Promise<{ id: string; name: string; timestamp: number }> {
     await this.ensureReady();
     const snapId = 'snap_' + Date.now();
     const now = Date.now();
-    await sql`INSERT INTO snapshots (id, whiteboard_id, name, actions_data, created_at) VALUES (${snapId}, ${whiteboardId}, ${name}, ${JSON.stringify(actions.slice(-5000))}, ${now})`;
+    await sql`INSERT INTO snapshots (id, whiteboard_id, name, actions_data, created_at, created_by, is_auto) VALUES (${snapId}, ${whiteboardId}, ${name}, ${JSON.stringify(actions.slice(-5000))}, ${now}, ${createdBy}, ${isAuto})`;
+    // Auto-snapshots: max 15, delete oldest. User snapshots: unlimited
+    const autoCount = await sql`SELECT COUNT(*) as cnt FROM snapshots WHERE whiteboard_id = ${whiteboardId} AND is_auto = true`;
+    if (autoCount.rows[0].cnt > 15) {
+      await sql`DELETE FROM snapshots WHERE id IN (SELECT id FROM snapshots WHERE whiteboard_id = ${whiteboardId} AND is_auto = true ORDER BY created_at ASC LIMIT ${autoCount.rows[0].cnt - 15})`;
+    }
     return { id: snapId, name, timestamp: now };
   }
 
-  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number }[]> {
+  async getSnapshots(whiteboardId: string): Promise<{ id: string; name: string; timestamp: number; createdBy: string; isAuto: boolean }[]> {
     await this.ensureReady();
-    const result = await sql`SELECT id, name, created_at FROM snapshots WHERE whiteboard_id = ${whiteboardId} ORDER BY created_at DESC`;
-    return result.rows.map((r: any) => ({ id: r.id, name: r.name, timestamp: r.created_at }));
+    const result = await sql`SELECT id, name, created_at, created_by, is_auto FROM snapshots WHERE whiteboard_id = ${whiteboardId} ORDER BY created_at DESC`;
+    return result.rows.map((r: any) => ({ id: r.id, name: r.name, timestamp: r.created_at, createdBy: r.created_by, isAuto: r.is_auto }));
   }
 
   async loadSnapshot(whiteboardId: string, snapshotId: string): Promise<DrawAction[] | null> {

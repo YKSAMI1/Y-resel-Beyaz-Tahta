@@ -61,8 +61,11 @@ export async function ensureSchema() {
     await pool.query(`CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, data TEXT NOT NULL, created_at BIGINT NOT NULL DEFAULT 0)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_images_whiteboard ON images(whiteboard_id)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS abuse_log (whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, user_id TEXT NOT NULL, count INT NOT NULL DEFAULT 1, first_delete_at BIGINT NOT NULL, blocked_until BIGINT NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL, PRIMARY KEY (whiteboard_id, user_id))`);
-    await pool.query(`CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Snapshot', actions_data JSONB NOT NULL, created_at BIGINT NOT NULL)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Snapshot', actions_data JSONB NOT NULL, created_at BIGINT NOT NULL, created_by TEXT NOT NULL DEFAULT 'unknown', is_auto BOOLEAN NOT NULL DEFAULT false)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_snapshots_whiteboard ON snapshots(whiteboard_id)`);
+    // Add columns to existing tables (safe if already exists)
+    await pool.query(`ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT 'unknown'`).catch(() => {});
+    await pool.query(`ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS is_auto BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
     await pool.query(`CREATE TABLE IF NOT EXISTS broadcasts (id SERIAL PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, message TEXT NOT NULL, created_at BIGINT NOT NULL)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_broadcasts_whiteboard ON broadcasts(whiteboard_id, created_at)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS active_users (whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, user_id TEXT NOT NULL, nickname TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#2563eb', last_seen BIGINT NOT NULL, PRIMARY KEY (whiteboard_id, user_id))`);

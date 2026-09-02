@@ -10,10 +10,4 @@
      · serverActions
 
  ✓ Starting...
- ✓ Ready in 2s
- ○ Compiling /api/whiteboard ...
- ✓ Compiled /api/whiteboard in 2.4s (323 modules)
- POST /api/whiteboard 200 in 5602ms
- ✓ Compiled in 150ms (128 modules)
- ✓ Compiled in 90ms (128 modules)
- ✓ Compiled in 66ms
+ ✓ Ready in 2.1s
