@@ -1,20 +1,10 @@
- ⨯ Error: Cannot find module './331.js'
-Require stack:
-- C:\Users\USER\Desktop\çizimsitesi\.next\server\webpack-runtime.js
-- C:\Users\USER\Desktop\çizimsitesi\.next\server\app\api\whiteboard\[id]\actions\route.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\server\require.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\server\load-components.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\build\utils.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\build\swc\options.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\build\swc\index.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\build\analysis\parse-module.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\build\analysis\get-page-static-info.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\server\lib\router-utils\setup-dev-bundler.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\server\lib\router-server.js
-- C:\Users\USER\Desktop\çizimsitesi\node_modules\next\dist\server\lib\start-server.js
-    at <unknown> (C:\Users\USER\Desktop\çizimsitesi\.next\server\app\api\whiteboard\[id]\actions\route.js:24:13006)
-    at Object.<anonymous> (C:\Users\USER\Desktop\çizimsitesi\.next\server\app\api\whiteboard\[id]\actions\route.js:24:13055) {
-  code: 'MODULE_NOT_FOUND',
-  requireStack: [Array],
-  page: '/api/whiteboard/1a93723b73a0/actions'
+ ⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use :::3003
+    at <unknown> (Error: listen EADDRINUSE: address already in use :::3003)
+    at new Promise (<anonymous>) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3003
 }
