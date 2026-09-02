@@ -15,6 +15,7 @@ interface StoredWhiteboard {
   deletedIds: { id: string; timestamp: number }[];
   snapshots: { id: string; name: string; actions: DrawAction[]; timestamp: number }[];
   deleteCounts: Map<string, { count: number; firstDeleteAt: number; blockedUntil: number }>;
+  activeUsers: Map<string, { nickname: string; lastSeen: number; color: string }>;
 }
 
 class InMemoryStore {
@@ -27,7 +28,7 @@ class InMemoryStore {
       layers: [{ id: 'layer-default', name: 'Varsayilan Katman', visible: true, locked: false, opacity: 1, order: 0 }],
       blockedUsers: [],
     };
-    this.whiteboards.set(id, { whiteboard, participants: new Map(), actions: [], deletedIds: [], snapshots: [], deleteCounts: new Map() });
+    this.whiteboards.set(id, { whiteboard, participants: new Map(), actions: [], deletedIds: [], snapshots: [], deleteCounts: new Map(), activeUsers: new Map() });
     return whiteboard;
   }
 
@@ -166,6 +167,27 @@ class InMemoryStore {
     // No-op for in-memory
   }
 
+  // Participant heartbeat
+  async heartbeat(whiteboardId: string, userId: string, nickname: string, color: string): Promise<void> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return;
+    stored.activeUsers.set(userId, { nickname, lastSeen: Date.now(), color });
+  }
+
+  async getActiveUsers(whiteboardId: string): Promise<{ userId: string; nickname: string; color: string }[]> {
+    const stored = this.whiteboards.get(whiteboardId);
+    if (!stored) return [];
+    const now = Date.now();
+    const TIMEOUT = 10000; // 10 seconds
+    const result: { userId: string; nickname: string; color: string }[] = [];
+    for (const [uid, info] of stored.activeUsers) {
+      if (now - info.lastSeen < TIMEOUT) {
+        result.push({ userId: uid, nickname: info.nickname, color: info.color });
+      }
+    }
+    return result;
+  }
+
   // List all whiteboards (admin)
   async listWhiteboards(): Promise<{ id: string; name: string; createdAt: number; actionCount: number }[]> {
     const result: { id: string; name: string; createdAt: number; actionCount: number }[] = [];
@@ -219,7 +241,7 @@ class PostgresStore {
         blockedUsers: row.blocked_users || [],
       },
       participants: new Map(), actions: [], deletedIds: [],
-      snapshots: [], deleteCounts: new Map(),
+      snapshots: [], deleteCounts: new Map(), activeUsers: new Map(),
     };
   }
 
@@ -384,6 +406,20 @@ class PostgresStore {
   async addBroadcast(whiteboardId: string, message: string): Promise<void> {
     await this.ensureReady();
     await sql`INSERT INTO broadcasts (whiteboard_id, message, created_at) VALUES (${whiteboardId}, ${message}, ${Date.now()})`;
+  }
+
+  // Participant heartbeat
+  async heartbeat(whiteboardId: string, userId: string, nickname: string, color: string): Promise<void> {
+    await this.ensureReady();
+    const now = Date.now();
+    await sql`INSERT INTO active_users (whiteboard_id, user_id, nickname, color, last_seen) VALUES (${whiteboardId}, ${userId}, ${nickname}, ${color}, ${now}) ON CONFLICT (whiteboard_id, user_id) DO UPDATE SET nickname = ${nickname}, color = ${color}, last_seen = ${now}`;
+  }
+
+  async getActiveUsers(whiteboardId: string): Promise<{ userId: string; nickname: string; color: string }[]> {
+    await this.ensureReady();
+    const TIMEOUT = 10000;
+    const result = await sql`SELECT user_id, nickname, color FROM active_users WHERE whiteboard_id = ${whiteboardId} AND last_seen > ${Date.now() - TIMEOUT}`;
+    return result.rows.map((r: any) => ({ userId: r.user_id, nickname: r.nickname, color: r.color }));
   }
 
   // List all whiteboards (admin)

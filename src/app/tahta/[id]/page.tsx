@@ -55,8 +55,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const pendingDeletesRef = useRef<Set<string>>(new Set());
   const snapshotPauseRef = useRef(false); // snapshot yuklerken polling'i durdur
   const [syncedTimestamp, setSyncedTimestamp] = useState(0);
-  // Unique client ID
-  const clientIdRef = useRef('client_' + Math.random().toString(36).substring(2, 10));
+  // Unique client ID — nickname ile ayni olsun ki incelenin dogru goster
+  const clientIdRef = useRef('');
   // Proper undo/redo stacks: { type: 'add'|'delete', action: DrawAction }
   type UndoOp = { type: 'add'; action: DrawAction } | { type: 'delete'; action: DrawAction };
   const undoStackRef = useRef<UndoOp[]>([]);
@@ -97,6 +97,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     const savedNick = localStorage.getItem('freebuff_nickname');
     if (savedNick) {
       setNickname(savedNick);
+      clientIdRef.current = savedNick; // nickname = userId
       setNicknameReady(true);
       setParticipants(prev => prev.map(p => p.id === 'self' ? { ...p, name: savedNick } : p));
     } else {
@@ -107,6 +108,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const handleNicknameSave = () => {
     const name = nickname.trim() || generateGuestName();
     setNickname(name);
+    clientIdRef.current = name; // nickname = userId
     localStorage.setItem('freebuff_nickname', name);
     setNicknameReady(true);
     setShowNicknameModal(false);
@@ -227,6 +229,45 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
     return () => clearInterval(pollInterval);
   }, [id, syncedTimestamp]);
+
+  // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
+  useEffect(() => {
+    if (!nicknameReady || !nickname) return;
+    const userColor = participants.find(p => p.id === 'self')?.color || '#2563eb';
+    // Send heartbeat
+    const sendHeartbeat = async () => {
+      try {
+        await fetch(`/api/whiteboard/${id}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: clientIdRef.current, nickname, color: userColor }),
+        });
+        // Get active users
+        const res = await fetch(`/api/whiteboard/${id}/heartbeat`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.users) {
+            setParticipants(prev => {
+              const self = prev.find(p => p.id === 'self');
+              const others = data.users
+                .filter((u: any) => u.userId !== clientIdRef.current)
+                .map((u: any) => ({
+                  id: u.userId,
+                  name: u.nickname,
+                  color: u.color,
+                  isOwner: false,
+                  isDrawing: false,
+                }));
+              return self ? [self, ...others] : others;
+            });
+          }
+        }
+      } catch { /* ignore */ }
+    };
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 5000);
+    return () => clearInterval(interval);
+  }, [id, nicknameReady, nickname]);
 
   // Fetch board data
   useEffect(() => {
@@ -364,20 +405,27 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       if (res.ok) {
         const data = await res.json();
         if (data.actions) {
-          // Snapshot'i hem local hem sunucuya uygula (diger kullanilara senkronize et)
-          setActions(data.actions);
-          actionsRef.current = data.actions;
+          // Tum action'lara yeni timestamp ver ki diger clientlar da alsin
+          const now = Date.now();
+          const freshActions = data.actions.map((a: DrawAction, i: number) => ({
+            ...a,
+            timestamp: now + i, // her birine farkli timestamp
+          }));
+          // Local state'i guncelle
+          setActions(freshActions);
+          actionsRef.current = freshActions;
+          setSyncedTimestamp(now + freshActions.length);
           // Sunucuya da yukle ki diger kullanilar da gorun
           await fetch(`/api/whiteboard/${id}/actions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bulk: data.actions.map((a: DrawAction) => ({ ...a, timestamp: Date.now() + Math.random() * 1000 })) }),
+            body: JSON.stringify({ bulk: freshActions }),
           });
           showToast('Snapshot yüklendi ve senkronize edildi!', 'success');
         }
       }
-      // 3 saniye sonra polling'i devam ettir
-      setTimeout(() => { snapshotPauseRef.current = false; }, 3000);
+      // 5 saniye sonra polling'i devam ettir
+      setTimeout(() => { snapshotPauseRef.current = false; }, 5000);
     } catch {
       snapshotPauseRef.current = false;
       showToast('Snapshot yüklenemedi', 'error');
