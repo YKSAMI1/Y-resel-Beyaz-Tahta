@@ -1,9 +1,16 @@
 // ============================================
-// Vercel Postgres veritabanı bağlantısı
-// Yerel geliştirme: fallback olarak bellek içi depo kullanılır
+// Veritabanı bağlantısı
+// POSTGRES_URL varsa onu kullan, yoksa Neon'a bağlan
+// require() kullanarak import'tan önce env var ayarlanır
 // ============================================
 
-import { sql } from '@vercel/postgres';
+// Neon fallback — Vercel free tier'da env var yoksa bu kullanılır
+if (!process.env.POSTGRES_URL) {
+  process.env.POSTGRES_URL = 'postgresql://neondb_owner:npg_EplT5vBmrPJ0@ep-holy-bread-b1pcur1x-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require';
+}
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { sql } = require('@vercel/postgres');
 
 const isProd = !!process.env.POSTGRES_URL;
 export const hasDb = !!process.env.POSTGRES_URL;
@@ -13,7 +20,7 @@ let schemaReady = false;
 
 export async function ensureSchema() {
   if (schemaReady) return;
-  if (!hasDb) return; // DB yoksa tablo gerekmez
+  if (!hasDb) return;
 
   try {
     await sql`
@@ -50,7 +57,7 @@ export async function ensureSchema() {
 
     await sql`CREATE INDEX IF NOT EXISTS idx_deleted_whiteboard ON deleted_ids(whiteboard_id, deleted_at)`;
 
-    // Fotograflar icin ayri tablo (buyuk base64 verisi)
+    // Fotograflar icin ayri tablo
     await sql`
       CREATE TABLE IF NOT EXISTS images (
         id TEXT PRIMARY KEY,
