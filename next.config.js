@@ -2,7 +2,7 @@
 const nextConfig = {
   // Neon veritabani - Vercel free tier'da env var yoksa bu kullanilir
   env: {
-    POSTGRES_URL: process.env.POSTGRES_URL || 'postgresql://neondb_owner:npg_EcYxn0gHfw8V@ep-blue-thunder-b1s3w3br-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require',
+    POSTGRES_URL: process.env.POSTGRES_URL || 'postgresql://whiteboard:8%26oqO%25YsB4oJPC%24Rhn9gP@yikimdara.com.tr:5432/whiteboard_db',
   },
   // Allow images from any source for whiteboard image uploads
   images: {
