@@ -67,6 +67,7 @@ export async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_broadcasts_whiteboard ON broadcasts(whiteboard_id, created_at)`);
     await pool.query(`CREATE TABLE IF NOT EXISTS active_users (whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, user_id TEXT NOT NULL, nickname TEXT NOT NULL, color TEXT NOT NULL DEFAULT '#2563eb', last_seen BIGINT NOT NULL, PRIMARY KEY (whiteboard_id, user_id))`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_active_users_whiteboard ON active_users(whiteboard_id, last_seen)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS admin_config (id TEXT PRIMARY KEY, hash TEXT NOT NULL, salt TEXT NOT NULL)`);
 
     schemaReady = true;
   } catch (e) {

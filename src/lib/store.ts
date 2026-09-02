@@ -196,6 +196,17 @@ class InMemoryStore {
     }
     return result;
   }
+
+  // Admin password (in-memory fallback)
+  private adminPassword: { hash: string; salt: string } | null = null;
+
+  async getAdminPassword(): Promise<{ hash: string; salt: string } | null> {
+    return this.adminPassword;
+  }
+
+  async setAdminPassword(hash: string, salt: string): Promise<void> {
+    this.adminPassword = { hash, salt };
+  }
 }
 
 // Buyuk alanlari (base64 fotograflar) veritabanindan cikar
@@ -427,6 +438,24 @@ class PostgresStore {
     await this.ensureReady();
     const result = await sql`SELECT w.id, w.name, w.created_at, COUNT(a.id) as action_count FROM whiteboards w LEFT JOIN actions a ON a.whiteboard_id = w.id GROUP BY w.id ORDER BY w.created_at DESC`;
     return result.rows.map((r: any) => ({ id: r.id, name: r.name, createdAt: r.created_at, actionCount: parseInt(r.action_count) || 0 }));
+  }
+
+  // Admin password (PostgreSQL)
+  async getAdminPassword(): Promise<{ hash: string; salt: string } | null> {
+    await this.ensureReady();
+    try {
+      const result = await sql`SELECT hash, salt FROM admin_config WHERE id = 'admin'`;
+      if (result.rows.length === 0) return null;
+      return { hash: result.rows[0].hash, salt: result.rows[0].salt };
+    } catch {
+      // Tablo yoksa null don
+      return null;
+    }
+  }
+
+  async setAdminPassword(hash: string, salt: string): Promise<void> {
+    await this.ensureReady();
+    await sql`INSERT INTO admin_config (id, hash, salt) VALUES ('admin', ${hash}, ${salt}) ON CONFLICT (id) DO UPDATE SET hash = ${hash}, salt = ${salt}`;
   }
 }
 

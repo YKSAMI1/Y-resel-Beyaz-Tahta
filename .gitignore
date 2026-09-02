@@ -31,3 +31,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database setup scripts (contain credentials)
+setup-db.js
+set-admin-password.js

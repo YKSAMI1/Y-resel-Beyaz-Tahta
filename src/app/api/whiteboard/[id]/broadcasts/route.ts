@@ -27,9 +27,17 @@ export async function POST(
     const body = await request.json();
     const { message, adminKey } = body;
     
-    // Basit admin key kontrolu
-    if (adminKey !== 'yoresel-admin-2024') {
+    // Admin token dogrulama
+    if (!adminKey) {
       return NextResponse.json({ error: 'Yetkisiz erişim.' }, { status: 403 });
+    }
+    try {
+      const decoded = JSON.parse(Buffer.from(adminKey, 'base64').toString());
+      if (!decoded.admin || decoded.exp < Date.now()) {
+        return NextResponse.json({ error: 'Token süresi dolmuş.' }, { status: 401 });
+      }
+    } catch {
+      return NextResponse.json({ error: 'Geçersiz token.' }, { status: 403 });
     }
     
     if (!message || message.trim().length === 0) {

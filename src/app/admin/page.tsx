@@ -16,28 +16,44 @@ export default function AdminPage() {
   const [broadcastBoardId, setBroadcastBoardId] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState('');
+  const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const login = () => {
-    if (adminKey === 'yoresel-admin-2024') {
-      setIsLoggedIn(true);
-      loadWhiteboards();
-    } else {
-      alert('Yanlış şifre!');
+  const login = async () => {
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminKey }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setToken(data.token);
+        setIsLoggedIn(true);
+        loadWhiteboards(data.token);
+      } else {
+        alert('Yanlış şifre!');
+      }
+    } catch {
+      alert('Bağlantı hatası!');
     }
   };
 
-  const loadWhiteboards = useCallback(async () => {
+  const loadWhiteboards = useCallback(async (tokenOverride?: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin?key=${adminKey}`);
+      const t = tokenOverride || token;
+      const res = await fetch(`/api/admin?token=${t}`);
       if (res.ok) {
         const data = await res.json();
         setWhiteboards(data.whiteboards || []);
+      } else if (res.status === 401) {
+        setIsLoggedIn(false);
+        setToken('');
       }
     } catch { /* ignore */ }
     setLoading(false);
-  }, [adminKey]);
+  }, [token]);
 
   const sendBroadcast = async () => {
     if (!broadcastBoardId || !broadcastMessage.trim()) return;
@@ -45,7 +61,7 @@ export default function AdminPage() {
       const res = await fetch(`/api/whiteboard/${broadcastBoardId}/broadcasts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: broadcastMessage, adminKey }),
+        body: JSON.stringify({ message: broadcastMessage, adminKey: token }),
       });
       if (res.ok) {
         setBroadcastStatus('✅ Duyuru gönderildi!');
@@ -101,7 +117,7 @@ export default function AdminPage() {
             </div>
           </div>
           <button
-            onClick={() => { setIsLoggedIn(false); setAdminKey(''); }}
+            onClick={() => { setIsLoggedIn(false); setAdminKey(''); setToken(''); }}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
           >
             Çıkış Yap
@@ -154,7 +170,7 @@ export default function AdminPage() {
               <span>📋</span> Tahtalar ({whiteboards.length})
             </h2>
             <button
-              onClick={loadWhiteboards}
+              onClick={() => loadWhiteboards()}
               disabled={loading}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors"
             >
