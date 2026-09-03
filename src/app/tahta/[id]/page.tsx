@@ -254,7 +254,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           }
         }
       } catch { /* network hatasi - bir sonraki poll'da tekrar dene */ }
-    }, 1500); // 1.5 saniye - daha hizli senkronizasyon
+    }, 1000); // 1 saniye - daha hizli senkronizasyon
     return () => clearInterval(pollInterval);
   }, [id]);
 
