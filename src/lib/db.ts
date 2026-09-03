@@ -10,7 +10,7 @@ export const isProd = true;
 // pg'yi lazy olarak yukle
 let _pool: any = null;
 
-export function getPool() {
+function getPool() {
   if (!_pool) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
