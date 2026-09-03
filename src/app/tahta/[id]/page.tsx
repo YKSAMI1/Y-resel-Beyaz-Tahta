@@ -234,22 +234,21 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, [id, syncedTimestamp]);
 
   // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
-  // Benzersiz client ID - her cihaz/farkli olsun ki ayni nickname'li farkli cihazlar ayirt edilsin
+  // Her cihaz icin benzersiz ID (ayni nickname'li farkli cihazlar da ayirt edilsin)
   const myClientIdRef = useRef<string>('');
   useEffect(() => {
-    if (nicknameReady && !myClientIdRef.current) {
+    if (!nicknameReady || !nickname) return;
+    // Benzersiz client ID - sadece bir kere uret
+    if (!myClientIdRef.current) {
       myClientIdRef.current = (clientIdRef.current || 'user') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
     }
-  }, [nicknameReady]);
-  useEffect(() => {
-    if (!nicknameReady || !nickname) return;
+    const myId = myClientIdRef.current;
     const sendHeartbeat = async () => {
       try {
         const nick = nicknameRef.current || nickname;
         if (!nick) return;
-        const myId = myClientIdRef.current || (clientIdRef.current + '_' + Date.now());
         // Heartbeat gonder (kendini sunucuya bildir)
-        const hbRes = await fetch(`/api/whiteboard/${id}/heartbeat`, {
+        await fetch(`/api/whiteboard/${id}/heartbeat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -258,7 +257,6 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             color: participants.find(p => p.id === 'self')?.color || '#2563eb',
           }),
         });
-        if (!hbRes.ok) { console.error('Heartbeat POST basarisiz:', hbRes.status); }
         // Aktif kullanicilari al
         const res = await fetch(`/api/whiteboard/${id}/heartbeat`);
         if (res.ok) {
@@ -279,7 +277,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             });
           }
         }
-      } catch (err) { console.error('Heartbeat hatasi:', err); }
+      } catch { /* ignore */ }
     };
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 5000);
