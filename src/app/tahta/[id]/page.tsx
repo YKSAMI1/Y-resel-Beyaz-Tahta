@@ -209,19 +209,20 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     } catch { /* ignore */ }
   }, [layers, id]);
 
-  // ===== REAL-TIME SYNC: Ref-based polling (interval asla yeniden yaratilmaz) =====
+  // ===== REAL-TIME SYNC: Ref-based polling =====
   const syncedTsRef = useRef(0);
   useEffect(() => { syncedTsRef.current = syncedTimestamp; }, [syncedTimestamp]);
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       if (snapshotPauseRef.current) return;
-      // 60 sn onceki pending deletes'i temizle (sunucu tarafinda silinmisti)
+      // Stale pending deletes temizle
       const now = Date.now();
       let cleaned = false;
       for (const [pdId, ts] of pendingDeletesRef.current) {
         if (now - ts > 60000) { pendingDeletesRef.current.delete(pdId); cleaned = true; }
       }
       if (cleaned) savePendingDeletes(pendingDeletesRef.current);
+      // Poll actions
       const since = syncedTsRef.current;
       try {
         const res = await fetch(`/api/whiteboard/${id}/actions?since=${since}`);
@@ -252,20 +253,10 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             setSyncedTimestamp(prev => Math.max(prev, maxTs));
           }
         }
-        // Broadcasts - ayni poll'da kontrol et (ek HTTP tasarrufu)
-        const bRes = await fetch(`/api/whiteboard/${id}/broadcasts?since=${Date.now() - 10000}`);
-        if (bRes.ok) {
-          const bData = await bRes.json();
-          if (bData.broadcasts && bData.broadcasts.length > 0) {
-            const latest = bData.broadcasts[bData.broadcasts.length - 1];
-            setBroadcastBanner(latest.message);
-            setTimeout(() => setBroadcastBanner(null), 8000);
-          }
-        }
-      } catch { /* ignore */ }
-    }, 2000); // 2 saniye aralikla - daha stabil
+      } catch { /* network hatasi - bir sonraki poll'da tekrar dene */ }
+    }, 1500); // 1.5 saniye - daha hizli senkronizasyon
     return () => clearInterval(pollInterval);
-  }, [id]); // syncedTimestamp bağımlılığı kaldırıldı - ref kullanılıyor
+  }, [id]);
 
   // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
   // Her cihaz icin benzersiz ID (ayni nickname'li farkli cihazlar da ayirt edilsin)
