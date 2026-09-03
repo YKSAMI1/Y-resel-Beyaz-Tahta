@@ -47,9 +47,12 @@ export async function POST(
       await whiteboardStore.createWhiteboard(id, 'Tahta', defaultSettings, 'anonymous');
     }
 
-    // Bulk update: replace all actions (for move/resize sync)
+    // Bulk upsert: mevcut action'lari silmeden sadece verilenleri ekle/guncelle
     if (body.bulk && Array.isArray(body.bulk)) {
-      await whiteboardStore.setActions(id, body.bulk);
+      await whiteboardStore.upsertActions(id, body.bulk);
+    } else if (body.upsert && Array.isArray(body.upsert)) {
+      // Hedefli upsert: sadece degisen action'lari gonder
+      await whiteboardStore.upsertActions(id, body.upsert);
     } else {
       await whiteboardStore.addAction(id, body);
     }

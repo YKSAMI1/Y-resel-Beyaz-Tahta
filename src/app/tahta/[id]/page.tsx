@@ -381,26 +381,39 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
 
   // Ref for handleSyncActions to avoid circular dependency
   const syncActionsRef = useRef<() => void>(() => {});
+  // Degisen action ID'lerini takip et (move/resize/rotate icin)
+  const changedIdsRef = useRef<Set<string>>(new Set());
 
-  // Sync moved/resized actions to server so other clients see the changes
+  // Sync sadece degisen action'lari sunucuya gonder (bulk replace YAPMAZ!)
   const handleSyncActions = useCallback(async () => {
+    const changedIds = changedIdsRef.current;
+    changedIdsRef.current = new Set(); // temizle
+    if (changedIds.size === 0) return;
+    // Sadece degisen action'lari bul ve gonder
     const now = Date.now();
-    // First, stamp all actions with new timestamps so other clients' polls pick them up
+    const changedActions: DrawAction[] = [];
     setActions(prev => {
-      const stamped = prev.map(a => ({ ...a, timestamp: now }));
-      actionsRef.current = stamped;
-      return stamped;
-    });
-    // Then send to server (give React a tick to commit the state)
-    await new Promise(r => setTimeout(r, 0));
-    const current = actionsRef.current;
-    try {
-      await fetch(`/api/whiteboard/${id}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bulk: current }),
+      const updated = prev.map(a => {
+        if (changedIds.has(a.id)) {
+          const stamped = { ...a, timestamp: now };
+          changedActions.push(stamped);
+          return stamped;
+        }
+        return a;
       });
-    } catch { /* network error */ }
+      actionsRef.current = updated;
+      return updated;
+    });
+    // Sadece degisen action'lari sunucuya upsert et
+    if (changedActions.length > 0) {
+      try {
+        await fetch(`/api/whiteboard/${id}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upsert: changedActions }),
+        });
+      } catch { /* network error */ }
+    }
   }, [id]);
 
   // Keep syncActionsRef in sync
@@ -454,11 +467,11 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           setActions(freshActions);
           actionsRef.current = freshActions;
           setSyncedTimestamp(now + freshActions.length);
-          // Sunucuya da yukle ki diger kullanilar da gorun
+          // Sunucuya da yukle ki diger kullanilar da gorun (upsert - digerlerinin verisini silme)
           await fetch(`/api/whiteboard/${id}/actions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bulk: freshActions }),
+            body: JSON.stringify({ upsert: freshActions }),
           });
           showToast('Snapshot yüklendi ve senkronize edildi!', 'success');
         }
@@ -535,7 +548,10 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       const selIds = canvasRef.current?.getSelectedIds() || [];
       const snap = new Map<string, {x:number;y:number}[]>();
       for (const a of actionsRef.current) {
-        if (selIds.includes(a.id)) snap.set(a.id, a.points.map(p => ({...p})));
+        if (selIds.includes(a.id)) {
+          snap.set(a.id, a.points.map(p => ({...p})));
+          changedIdsRef.current.add(a.id); // degisiklikleri takip et
+        }
       }
       moveSnapshotRef.current = snap;
     }
@@ -836,6 +852,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
               onUpdateActions={setActions}
               onUpdateCommit={handleUpdateCommit}
               onSyncActions={handleSyncActions}
+              onActionsChanged={(ids) => { ids.forEach(id => changedIdsRef.current.add(id)); }}
               clientId={clientIdRef.current}
             />
 

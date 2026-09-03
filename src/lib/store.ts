@@ -55,6 +55,17 @@ class InMemoryStore {
     stored.actions = newActions.slice(-5000);
   }
 
+  // Upsert: mevcut action'lari silmeden ekle/guncelle
+  async upsertActions(id: string, actionsToUpsert: DrawAction[]): Promise<void> {
+    const stored = this.whiteboards.get(id);
+    if (!stored) return;
+    const map = new Map(stored.actions.map(a => [a.id, a]));
+    for (const action of actionsToUpsert) {
+      map.set(action.id, action);
+    }
+    stored.actions = Array.from(map.values()).slice(-5000);
+  }
+
   async getActions(id: string, since: number = 0): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
     const stored = this.whiteboards.get(id);
     if (!stored) return { actions: [], deletedIds: [] };
@@ -274,13 +285,27 @@ class PostgresStore {
   }
 
   async setActions(id: string, newActions: DrawAction[]): Promise<void> {
+    // setActions artik sadece snapshot yukleme icin - DB'deki mevcut verileri sil
     await this.ensureReady();
     await sql`DELETE FROM actions WHERE whiteboard_id = ${id}`;
+    await sql`DELETE FROM images WHERE whiteboard_id = ${id}`;
     for (const action of newActions.slice(-5000)) {
       const { imageSrc, ...safe } = action as any;
-      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO NOTHING`;
+      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(safe)}, timestamp = ${action.timestamp}`;
       if (imageSrc) {
-        await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO NOTHING`;
+        await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO UPDATE SET data = ${imageSrc}`;
+      }
+    }
+  }
+
+  // Upsert: mevcut action'lari silmeden sadece verilen action'lari ekle/guncelle
+  async upsertActions(id: string, actionsToUpsert: DrawAction[]): Promise<void> {
+    await this.ensureReady();
+    for (const action of actionsToUpsert.slice(-5000)) {
+      const { imageSrc, ...safe } = action as any;
+      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId || 'unknown'}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(safe)}, timestamp = ${action.timestamp}`;
+      if (imageSrc) {
+        await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO UPDATE SET data = ${imageSrc}`;
       }
     }
   }

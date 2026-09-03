@@ -27,6 +27,7 @@ interface WhiteboardCanvasProps {
   onUpdateActions?: (updater: (prev: DrawAction[]) => DrawAction[]) => void;
   onUpdateCommit?: (oldPositions: Map<string, {x:number;y:number}[]>) => void;
   onSyncActions?: () => void;
+  onActionsChanged?: (ids: string[]) => void;
   clientId?: string;
 }
 
@@ -495,7 +496,7 @@ function generateLassoBitmap(
 let drawAllActionsGlobal: (ctx: CanvasRenderingContext2D, acts: DrawAction[], lrs: Layer[], _z: number) => void;
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(function WhiteboardCanvas(
-  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onMoveCommit, onUpdateActions, onUpdateCommit, onSyncActions, clientId = 'self' },
+  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onMoveCommit, onUpdateActions, onUpdateCommit, onSyncActions, onActionsChanged, clientId = 'self' },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1200,12 +1201,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
   const handlePointerUp = (e: React.PointerEvent) => {
     if (isPanning) { setIsPanning(false); isPanningRef.current = false; return; }
 
-    // SELECT: end rotate
     // SELECT: end rotation — commit undo
     if (tool === 'select' && isRotating) {
       if (origPointsRef.current.size > 0) {
         onUpdateCommit?.(origPointsRef.current);
       }
+      onActionsChanged?.(selectedIds);
       setIsRotating(false);
       setRotateStart(null);
       setGroupRotation(0);
@@ -1220,6 +1221,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       if (resizeOldPointsRef.current.size > 0) {
         onUpdateCommit?.(resizeOldPointsRef.current);
       }
+      onActionsChanged?.(selectedIds);
       resizeOldPointsRef.current = new Map();
       setIsResizing(false);
       setResizeHandle(null);
@@ -1230,7 +1232,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
 
     // SELECT: end drag
     if (tool === 'select') {
-      if (isDragging) { setIsDragging(false); setDragStart(null); onMoveCommit?.(); onSyncActions?.(); }
+      if (isDragging) { setIsDragging(false); setDragStart(null); onMoveCommit?.(); onActionsChanged?.(selectedIds); onSyncActions?.(); }
       if (isSelecting && selectionBox) {
         setIsSelecting(false);
         const selected: string[] = [];
