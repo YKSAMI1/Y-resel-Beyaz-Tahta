@@ -21,7 +21,8 @@ export async function GET(
       await whiteboardStore.createWhiteboard(id, 'Tahta', defaultSettings, 'anonymous');
     }
 
-    const { actions, deletedIds } = await whiteboardStore.getActions(id, since);
+    const loadImages = searchParams.get('images') === 'true';
+    const { actions, deletedIds } = await whiteboardStore.getActions(id, since, loadImages);
     return NextResponse.json({ actions, deletedIds, total: actions.length });
   } catch {
     return NextResponse.json({ error: 'İşlemler yüklenemedi.' }, { status: 500 });

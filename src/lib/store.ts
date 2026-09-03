@@ -5,7 +5,7 @@
 // ============================================
 
 import { Whiteboard, Participant, DrawAction, WhiteboardSettings } from '@/types';
-import { sql, hasDb, ensureSchema } from './db';
+import { sql, hasDb, ensureSchema, getPool } from './db';
 
 // ===== Bellek ici depo (yerel gelistirme) =====
 interface StoredWhiteboard {
@@ -66,7 +66,7 @@ class InMemoryStore {
     stored.actions = Array.from(map.values()).slice(-5000);
   }
 
-  async getActions(id: string, since: number = 0): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
+  async getActions(id: string, since: number = 0, loadImages: boolean = false): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
     const stored = this.whiteboards.get(id);
     if (!stored) return { actions: [], deletedIds: [] };
     const allActions = since > 0 ? stored.actions.filter(a => a.timestamp > since) : stored.actions;
@@ -298,19 +298,36 @@ class PostgresStore {
     }
   }
 
-  // Upsert: mevcut action'lari silmeden sadece verilen action'lari ekle/guncelle
+  // Upsert: mevcut action'lari silmeden toplu sekilde ekle/guncelle
   async upsertActions(id: string, actionsToUpsert: DrawAction[]): Promise<void> {
     await this.ensureReady();
-    for (const action of actionsToUpsert.slice(-5000)) {
+    const pool = getPool();
+    const sliced = actionsToUpsert.slice(-5000);
+    if (sliced.length === 0) return;
+    // Toplu INSERT - tek sorgu ile
+    const values: any[][] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
+    for (const action of sliced) {
       const { imageSrc, ...safe } = action as any;
-      await sql`INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES (${action.id}, ${id}, ${JSON.stringify(safe)}, ${action.userId || 'unknown'}, ${action.timestamp}) ON CONFLICT (id) DO UPDATE SET data = ${JSON.stringify(safe)}, timestamp = ${action.timestamp}`;
+      values.push([action.id, id, JSON.stringify(safe), action.userId || 'unknown', action.timestamp]);
+      // Gorseli ayri kaydet (buyuk veri, topluya katma)
       if (imageSrc) {
         await sql`INSERT INTO images (id, whiteboard_id, data, created_at) VALUES (${action.id + '_img'}, ${id}, ${imageSrc}, ${Date.now()}) ON CONFLICT (id) DO UPDATE SET data = ${imageSrc}`;
       }
     }
+    // Batch upsert actions
+    if (values.length > 0) {
+      const placeholders = values.map((v, i) => `($${i*5+1}, $${i*5+2}, $${i*5+3}::jsonb, $${i*5+4}, $${i*5+5})`).join(',');
+      const flatValues = values.flat();
+      await pool.query(
+        `INSERT INTO actions (id, whiteboard_id, data, user_id, timestamp) VALUES ${placeholders} ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, timestamp = EXCLUDED.timestamp`,
+        flatValues
+      );
+    }
   }
 
-  async getActions(id: string, since: number = 0): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
+  async getActions(id: string, since: number = 0, loadImages: boolean = false): Promise<{ actions: DrawAction[]; deletedIds: string[] }> {
     await this.ensureReady();
     let rows;
     if (since > 0) {
@@ -321,19 +338,21 @@ class PostgresStore {
     const deletedResult = since > 0
       ? await sql`SELECT id FROM deleted_ids WHERE whiteboard_id = ${id} AND deleted_at > ${since}`
       : { rows: [] as any[] };
-    // Action'lari yukle
     const actions = rows.rows.map((r: any) => {
       const parsed = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       return parsed;
     });
-    // Fotograflari yukle (image type'li action'lar icin)
-    const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id}`;
-    if (imgRows.rows.length > 0) {
-      const imgMap = new Map<string, string>();
-      for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
-      for (const action of actions) {
-        const imgData = imgMap.get(action.id + '_img');
-        if (imgData) { (action as any).imageSrc = imgData; }
+    // Gorselleri sadece istendiginde yukle - SADECE donen action'lardaki gorselleri al
+    if (loadImages && actions.length > 0) {
+      const imgIds = actions.map((a: any) => a.id + '_img');
+      const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id} AND id = ANY(${imgIds})`;
+      if (imgRows.rows.length > 0) {
+        const imgMap = new Map<string, string>();
+        for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
+        for (const action of actions) {
+          const imgData = imgMap.get(action.id + '_img');
+          if (imgData) { (action as any).imageSrc = imgData; }
+        }
       }
     }
     return {

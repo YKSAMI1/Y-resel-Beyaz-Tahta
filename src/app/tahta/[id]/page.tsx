@@ -136,7 +136,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     // Her durumda sunucudan tum veriyi yukle
     const loadAll = async () => {
       try {
-        const res = await fetch(`/api/whiteboard/${id}/actions?since=0`);
+        const res = await fetch(`/api/whiteboard/${id}/actions?since=0&images=true`);
         if (res.ok) {
           const data = await res.json();
           if (data.actions && data.actions.length > 0) {
@@ -228,7 +228,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           }
         }
       } catch { /* ignore network errors */ }
-    }, 2000);
+    }, 1000);
 
     return () => clearInterval(pollInterval);
   }, [id, syncedTimestamp]);
