@@ -53,7 +53,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   // Actions / History
   const [actions, setActions] = useState<DrawAction[]>([]);
   const actionsRef = useRef<DrawAction[]>([]);
-  const pendingDeletesRef = useRef<Set<string>>(new Set());
+  const pendingDeletesRef = useRef<Map<string, number>>(new Map()); // id -> delete timestamp
   const snapshotPauseRef = useRef(false); // snapshot yuklerken polling'i durdur
   const [syncedTimestamp, setSyncedTimestamp] = useState(0);
   // Unique client ID — nickname ile ayni olsun ki incelenin dogru goster
@@ -185,6 +185,11 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       if (snapshotPauseRef.current) return;
+      // 30 sn onceki pending deletes'i temizle (sunucu tarafinda silinmisti)
+      const now = Date.now();
+      for (const [id, ts] of pendingDeletesRef.current) {
+        if (now - ts > 30000) pendingDeletesRef.current.delete(id);
+      }
       const since = syncedTsRef.current;
       try {
         const res = await fetch(`/api/whiteboard/${id}/actions?since=${since}`);
@@ -330,19 +335,23 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       redoStackRef.current = [];
       pushUndoCount(); pushRedoCount();
     }
-    pendingDeletesRef.current.add(actionId);
+    pendingDeletesRef.current.set(actionId, Date.now());
     setActions(prev => prev.filter(a => a.id !== actionId));
-    // Silme islemini sunucuya gonder - basarisiz olursa 3 kez dene
-    const deleteWithRetry = async (retries = 3) => {
-      for (let i = 0; i < retries; i++) {
+    // Silme: Once sunucuya sil, basarili olursa pendingDeletesRef'ten temizle
+    const deleteOnServer = async () => {
+      for (let i = 0; i < 5; i++) {
         try {
           const res = await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' });
-          if (res.ok) { pendingDeletesRef.current.delete(actionId); return; }
+          if (res.ok) {
+            pendingDeletesRef.current.delete(actionId);
+            return;
+          }
         } catch { /* retry */ }
-        await new Promise(r => setTimeout(r, 500 * (i + 1)));
+        await new Promise(r => setTimeout(r, 300 * (i + 1)));
       }
+      // 5 deneme de basarisizsa pendingDeletesRef'ten temizleme - tekrar denensin
     };
-    deleteWithRetry();
+    deleteOnServer();
   }, [id]);
 
   const handleUndo = useCallback(() => {
@@ -352,7 +361,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     redoStackRef.current.push(op);
     if (op.type === 'add') {
       // Ekleme islemini geri al: action'ı sil
-      pendingDeletesRef.current.add(op.action.id);
+      pendingDeletesRef.current.set(op.action.id, Date.now());
       setActions(prev => prev.filter(a => a.id !== op.action.id));
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
     } else if (op.type === 'delete') {
@@ -384,7 +393,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       setActions(prev => [...prev, restored]);
       syncActionToServer(restored);
     } else if (op.type === 'delete') {
-      pendingDeletesRef.current.add(op.action.id);
+      pendingDeletesRef.current.set(op.action.id, Date.now());
       setActions(prev => prev.filter(a => a.id !== op.action.id));
       fetch(`/api/whiteboard/${id}/actions/${op.action.id}`, { method: 'DELETE' }).catch(() => {});
     }
