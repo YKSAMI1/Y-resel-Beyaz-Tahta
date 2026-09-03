@@ -3,7 +3,7 @@
 // pg paketi ile doğrudan bağlantı
 // ============================================
 
-const SUPABASE_URL = 'postgresql://postgres.xcyjjmlkwihhmnmqrb:8%26oqO%25YsB4oJPC%24Rhn9gP@aws-0-eu-central-1.pooler.supabase.com:6543/postgres';
+const SUPABASE_URL = 'postgresql://postgres.xcyjjkhmlkwihhmnmqrb:8%26oqO%25YsB4oJPC%24Rhn9gP@aws-0-eu-central-1.pooler.supabase.com:6543/postgres';
 
 export const hasDb = true;
 
