@@ -5,7 +5,7 @@
 // ============================================
 
 import { Whiteboard, Participant, DrawAction, WhiteboardSettings } from '@/types';
-import { sql, hasDb, ensureSchema, getPool } from './db';
+import { sql, hasDb, ensureSchema } from './db';
 
 // ===== Bellek ici depo (yerel gelistirme) =====
 interface StoredWhiteboard {
@@ -325,36 +325,15 @@ class PostgresStore {
       const parsed = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       return parsed;
     });
-    // Gorselleri yukle - ilk yuklemede tum gorseller, poll'larda sadece donen action'lardakiler
+    // Gorselleri yukle (fcb8cd7 ile ayni - basit ve calisir)
     if (actions.length > 0) {
-      if (since === 0) {
-        // Ilk yukleme: tum gorseller
-        const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id}`;
-        if (imgRows.rows.length > 0) {
-          const imgMap = new Map<string, string>();
-          for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
-          for (const action of actions) {
-            const imgData = imgMap.get(action.id + '_img');
-            if (imgData) { (action as any).imageSrc = imgData; }
-          }
-        }
-      } else {
-        // Incremental poll: sadece donen action'lardaki gorselleri cek (hizli)
-        const imgIds = actions.map((a: any) => a.id + '_img');
-        if (imgIds.length > 0) {
-          const pool = getPool();
-          const imgResult = await pool.query(
-            `SELECT id, data FROM images WHERE whiteboard_id = $1 AND id = ANY($2)`,
-            [id, imgIds]
-          );
-          if (imgResult.rows.length > 0) {
-            const imgMap = new Map<string, string>();
-            for (const r of imgResult.rows) { imgMap.set(r.id, r.data); }
-            for (const action of actions) {
-              const imgData = imgMap.get(action.id + '_img');
-              if (imgData) { (action as any).imageSrc = imgData; }
-            }
-          }
+      const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id}`;
+      if (imgRows.rows.length > 0) {
+        const imgMap = new Map<string, string>();
+        for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
+        for (const action of actions) {
+          const imgData = imgMap.get(action.id + '_img');
+          if (imgData) { (action as any).imageSrc = imgData; }
         }
       }
     }
