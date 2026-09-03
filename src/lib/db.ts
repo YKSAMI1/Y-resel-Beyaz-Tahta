@@ -7,20 +7,27 @@ const DB_URL = process.env.POSTGRES_URL || 'postgresql://whiteboard:8%26oqO%25Ys
 export const hasDb = true;
 export const isProd = true;
 
-// pg'yi lazy olarak yukle
+// pg'yi lazy olarak yukle - optimize edilmis pool ayarlari
 let _pool: any = null;
 
-function getPool() {
+export function getPool() {
   if (!_pool) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pg = require('pg');
       _pool = new pg.Pool({
         connectionString: DB_URL,
-        max: 10,
-        idleTimeoutMillis: 30000,
+        max: 20,
+        min: 2,
+        idleTimeoutMillis: 60000,
+        connectionTimeoutMillis: 8000,
         ssl: false,
-        connectionTimeoutMillis: 10000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+      });
+      _pool.on('error', (err: any) => {
+        console.error('Pool beklenmeyen hata:', err.message);
+        _pool = null;
       });
     } catch (e) {
       console.error('PostgreSQL pool olusturulamadi:', e);
@@ -63,7 +70,6 @@ export async function ensureSchema() {
     await pool.query(`CREATE TABLE IF NOT EXISTS abuse_log (whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, user_id TEXT NOT NULL, count INT NOT NULL DEFAULT 1, first_delete_at BIGINT NOT NULL, blocked_until BIGINT NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL, PRIMARY KEY (whiteboard_id, user_id))`);
     await pool.query(`CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, name TEXT NOT NULL DEFAULT 'Snapshot', actions_data JSONB NOT NULL, created_at BIGINT NOT NULL, created_by TEXT NOT NULL DEFAULT 'unknown', is_auto BOOLEAN NOT NULL DEFAULT false)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_snapshots_whiteboard ON snapshots(whiteboard_id)`);
-    // Add columns to existing tables (safe if already exists)
     await pool.query(`ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT 'unknown'`).catch(() => {});
     await pool.query(`ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS is_auto BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
     await pool.query(`CREATE TABLE IF NOT EXISTS broadcasts (id SERIAL PRIMARY KEY, whiteboard_id TEXT NOT NULL REFERENCES whiteboards(id) ON DELETE CASCADE, message TEXT NOT NULL, created_at BIGINT NOT NULL)`);
