@@ -234,22 +234,31 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   }, [id, syncedTimestamp]);
 
   // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
+  // Benzersiz client ID - her cihaz/farkli olsun ki ayni nickname'li farkli cihazlar ayirt edilsin
+  const myClientIdRef = useRef<string>('');
+  useEffect(() => {
+    if (nicknameReady && !myClientIdRef.current) {
+      myClientIdRef.current = (clientIdRef.current || 'user') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    }
+  }, [nicknameReady]);
   useEffect(() => {
     if (!nicknameReady || !nickname) return;
     const sendHeartbeat = async () => {
       try {
         const nick = nicknameRef.current || nickname;
         if (!nick) return;
+        const myId = myClientIdRef.current || (clientIdRef.current + '_' + Date.now());
         // Heartbeat gonder (kendini sunucuya bildir)
-        await fetch(`/api/whiteboard/${id}/heartbeat`, {
+        const hbRes = await fetch(`/api/whiteboard/${id}/heartbeat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId: clientIdRef.current || nick,
+            userId: myId,
             nickname: nick,
             color: participants.find(p => p.id === 'self')?.color || '#2563eb',
           }),
         });
+        if (!hbRes.ok) { console.error('Heartbeat POST basarisiz:', hbRes.status); }
         // Aktif kullanicilari al
         const res = await fetch(`/api/whiteboard/${id}/heartbeat`);
         if (res.ok) {
@@ -257,9 +266,8 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           if (data.users) {
             setParticipants(prev => {
               const self = prev.find(p => p.id === 'self');
-              const nick = clientIdRef.current || nicknameRef.current;
               const others = data.users
-                .filter((u: any) => u.userId !== nick)
+                .filter((u: any) => u.userId !== myId)
                 .map((u: any) => ({
                   id: u.userId,
                   name: u.nickname,
@@ -271,7 +279,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             });
           }
         }
-      } catch { /* ignore */ }
+      } catch (err) { console.error('Heartbeat hatasi:', err); }
     };
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 5000);
