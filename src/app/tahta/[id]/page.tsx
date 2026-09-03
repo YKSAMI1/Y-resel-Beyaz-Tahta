@@ -179,20 +179,21 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     } catch { /* ignore */ }
   }, [layers, id]);
 
-  // ===== REAL-TIME SYNC: Poll server every 2s =====
+  // ===== REAL-TIME SYNC: Ref-based polling (interval asla yeniden yaratilmaz) =====
+  const syncedTsRef = useRef(0);
+  useEffect(() => { syncedTsRef.current = syncedTimestamp; }, [syncedTimestamp]);
   useEffect(() => {
     const pollInterval = setInterval(async () => {
-      if (snapshotPauseRef.current) return; // snapshot yukleniyor, bekle
+      if (snapshotPauseRef.current) return;
+      const since = syncedTsRef.current;
       try {
-        const res = await fetch(`/api/whiteboard/${id}/actions?since=${syncedTimestamp}`);
+        const res = await fetch(`/api/whiteboard/${id}/actions?since=${since}`);
         if (res.ok) {
           const data = await res.json();
-          // Handle deletions from other users
           if (data.deletedIds && data.deletedIds.length > 0) {
             setActions(prev => prev.filter(a => !data.deletedIds.includes(a.id)));
           }
           if (data.actions && data.actions.length > 0) {
-            // Add new AND update existing remote actions (for move/resize sync)
             setActions(prev => {
               const localMap = new Map(prev.map(a => [a.id, a]));
               let changed = false;
@@ -200,11 +201,9 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
                 if (pendingDeletesRef.current.has(remote.id)) continue;
                 const local = localMap.get(remote.id);
                 if (!local) {
-                  // New action — add it
                   localMap.set(remote.id, remote);
                   changed = true;
                 } else if (remote.timestamp > local.timestamp && remote.userId !== clientIdRef.current) {
-                  // Existing action with newer timestamp from another user — update it
                   localMap.set(remote.id, remote);
                   changed = true;
                 }
@@ -212,12 +211,11 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
               if (!changed) return prev;
               return Array.from(localMap.values());
             });
-            // Update synced timestamp
             const maxTs = Math.max(...data.actions.map((a: DrawAction) => a.timestamp));
             setSyncedTimestamp(prev => Math.max(prev, maxTs));
           }
         }
-        // Check broadcasts
+        // Broadcasts - ayni poll'da kontrol et (ek HTTP tasarrufu)
         const bRes = await fetch(`/api/whiteboard/${id}/broadcasts?since=${Date.now() - 10000}`);
         if (bRes.ok) {
           const bData = await bRes.json();
@@ -227,11 +225,10 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             setTimeout(() => setBroadcastBanner(null), 8000);
           }
         }
-      } catch { /* ignore network errors */ }
-    }, 1000);
-
+      } catch { /* ignore */ }
+    }, 2000); // 2 saniye aralikla - daha stabil
     return () => clearInterval(pollInterval);
-  }, [id, syncedTimestamp]);
+  }, [id]); // syncedTimestamp bağımlılığı kaldırıldı - ref kullanılıyor
 
   // ===== HEARTBEAT: her 5 sn'de bir kendini bildir + aktif kullanici listesini al =====
   // Her cihaz icin benzersiz ID (ayni nickname'li farkli cihazlar da ayirt edilsin)
@@ -335,7 +332,17 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     }
     pendingDeletesRef.current.add(actionId);
     setActions(prev => prev.filter(a => a.id !== actionId));
-    try { await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' }); } catch { /* ignore */ }
+    // Silme islemini sunucuya gonder - basarisiz olursa 3 kez dene
+    const deleteWithRetry = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch(`/api/whiteboard/${id}/actions/${actionId}`, { method: 'DELETE' });
+          if (res.ok) { pendingDeletesRef.current.delete(actionId); return; }
+        } catch { /* retry */ }
+        await new Promise(r => setTimeout(r, 500 * (i + 1)));
+      }
+    };
+    deleteWithRetry();
   }, [id]);
 
   const handleUndo = useCallback(() => {
