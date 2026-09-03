@@ -133,16 +133,27 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       const savedLayers = localStorage.getItem(`freeboard_layers_${id}`);
       if (savedLayers) setLayers(JSON.parse(savedLayers));
     } catch { /* ignore */ }
-    // Her durumda sunucudan tum veriyi yukle
+    // Her durumda sunucudan tum veriyi yukle — 2 asamali: once cizimler, sonra gorseller
     const loadAll = async () => {
       try {
-        const res = await fetch(`/api/whiteboard/${id}/actions?since=0&images=true`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.actions && data.actions.length > 0) {
-            setActions(data.actions);
-            const maxTs = Math.max(...data.actions.map((a: DrawAction) => a.timestamp));
+        // Asama 1: Cizimleri hizlica yukle (gorselsiz — cok hizli)
+        const fastRes = await fetch(`/api/whiteboard/${id}/actions?since=0`);
+        if (fastRes.ok) {
+          const fastData = await fastRes.json();
+          if (fastData.actions && fastData.actions.length > 0) {
+            setActions(fastData.actions);
+            const maxTs = Math.max(...fastData.actions.map((a: DrawAction) => a.timestamp));
             setSyncedTimestamp(maxTs);
+          }
+        }
+        // Asama 2: Gorselleri arka planda yukle (yavas olsa bile cizimler gorunur)
+        const imgRes = await fetch(`/api/whiteboard/${id}/actions?since=0&images=true`);
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          if (imgData.actions && imgData.actions.length > 0) {
+            setActions(imgData.actions);
+            const maxTs = Math.max(...imgData.actions.map((a: DrawAction) => a.timestamp));
+            setSyncedTimestamp(prev => Math.max(prev, maxTs));
           }
         }
       } catch { /* will retry on next poll */ }

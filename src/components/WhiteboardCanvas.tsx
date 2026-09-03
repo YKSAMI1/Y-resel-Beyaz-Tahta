@@ -1340,7 +1340,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
           iw = Math.round(iw * scale);
           ih = Math.round(ih * scale);
         }
-        onAddAction({ id: generateId(), type: 'image', points: [imageClickPoint], color: 'transparent', fillColor: 'transparent', strokeWidth: 0, opacity, layerId: activeLayerId, userId: clientId, timestamp: Date.now(), imageSrc: ev.target?.result as string, imageWidth: iw, imageHeight: ih });
+        // Canvas ile JPEG'e cevir ve sikistir (buyuk dosyalari kucult)
+        const compCanvas = document.createElement('canvas');
+        compCanvas.width = iw; compCanvas.height = ih;
+        const compCtx = compCanvas.getContext('2d');
+        if (compCtx) {
+          compCtx.drawImage(img, 0, 0, iw, ih);
+          // JPEG kalite 0.72 — buyuk gorsellerde ~%70 kucultme, hala iyi gorunur
+          const compressed = compCanvas.toDataURL('image/jpeg', 0.72);
+          onAddAction({ id: generateId(), type: 'image', points: [imageClickPoint], color: 'transparent', fillColor: 'transparent', strokeWidth: 0, opacity, layerId: activeLayerId, userId: clientId, timestamp: Date.now(), imageSrc: compressed, imageWidth: iw, imageHeight: ih });
+        } else {
+          // Fallback: canvas calismazsa ham haliyle ekle
+          onAddAction({ id: generateId(), type: 'image', points: [imageClickPoint], color: 'transparent', fillColor: 'transparent', strokeWidth: 0, opacity, layerId: activeLayerId, userId: clientId, timestamp: Date.now(), imageSrc: ev.target?.result as string, imageWidth: iw, imageHeight: ih });
+        }
       }; img.src = ev.target?.result as string;
     }; reader.readAsDataURL(file); e.target.value = '';
   };
