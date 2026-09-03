@@ -436,26 +436,51 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
     if (changedIds.size === 0) return;
     // Sadece degisen action'lari bul ve gonder
     const now = Date.now();
+    const allActions = actionsRef.current;
     const changedActions: DrawAction[] = [];
-    setActions(prev => {
-      const updated = prev.map(a => {
-        if (changedIds.has(a.id)) {
-          const stamped = { ...a, timestamp: now };
-          changedActions.push(stamped);
-          return stamped;
-        }
-        return a;
-      });
-      actionsRef.current = updated;
-      return updated;
-    });
-    // Sadece degisen action'lari sunucuya upsert et
+    for (const a of allActions) {
+      if (changedIds.has(a.id)) {
+        changedActions.push({ ...a, timestamp: now });
+      }
+    }
+    // Guncelle
     if (changedActions.length > 0) {
+      setActions(prev => {
+        const updated = prev.map(a => {
+          const found = changedActions.find(c => c.id === a.id);
+          return found || a;
+        });
+        actionsRef.current = updated;
+        return updated;
+      });
+      // Sunucuya gonder
       try {
         await fetch(`/api/whiteboard/${id}/actions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ upsert: changedActions }),
+        });
+      } catch { /* network error */ }
+    }
+  }, [id]);
+
+  // Select tool degisikliklerini direkt olarak sunucuya gonder
+  const handleSyncSelected = useCallback(async (actionIds: string[]) => {
+    if (actionIds.length === 0) return;
+    const now = Date.now();
+    const allActions = actionsRef.current;
+    const syncActions: DrawAction[] = [];
+    for (const a of allActions) {
+      if (actionIds.includes(a.id)) {
+        syncActions.push({ ...a, timestamp: now });
+      }
+    }
+    if (syncActions.length > 0) {
+      try {
+        await fetch(`/api/whiteboard/${id}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upsert: syncActions }),
         });
       } catch { /* network error */ }
     }
@@ -472,8 +497,24 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, actions: actionsRef.current, createdBy: createdBy || nickname || 'unknown', isAuto: isAuto || false }),
       });
-      if (res.ok && !isAuto) { showToast('Snapshot kaydedildi!', 'success'); }
-      else if (!res.ok) { showToast('Snapshot kaydedilemedi', 'error'); }
+      if (res.ok) {
+        // VDS'ye yedekle
+        const snapData = await res.json();
+        fetch(`/api/whiteboard/${id}/snapshots-backup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            snapshotId: snapData.id,
+            name,
+            actionsData: actionsRef.current,
+            createdBy: createdBy || nickname || 'unknown',
+            isAuto: isAuto || false,
+          }),
+        }).catch(() => {}); // VDS hatası ana işi engellemez
+        if (!isAuto) showToast('Snapshot kaydedildi!', 'success');
+      } else {
+        if (!isAuto) showToast('Snapshot kaydedilemedi', 'error');
+      }
     } catch { if (!isAuto) showToast('Snapshot kaydedilemedi', 'error'); }
   }, [id, nickname]);
 
@@ -897,6 +938,7 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
               onUpdateActions={setActions}
               onUpdateCommit={handleUpdateCommit}
               onSyncActions={handleSyncActions}
+              onSyncSelected={handleSyncSelected}
               onActionsChanged={(ids) => { ids.forEach(id => changedIdsRef.current.add(id)); }}
               clientId={clientIdRef.current}
             />

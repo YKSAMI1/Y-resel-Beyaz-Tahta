@@ -27,6 +27,7 @@ interface WhiteboardCanvasProps {
   onUpdateActions?: (updater: (prev: DrawAction[]) => DrawAction[]) => void;
   onUpdateCommit?: (oldPositions: Map<string, {x:number;y:number}[]>) => void;
   onSyncActions?: () => void;
+  onSyncSelected?: (ids: string[]) => void;
   onActionsChanged?: (ids: string[]) => void;
   clientId?: string;
 }
@@ -496,7 +497,7 @@ function generateLassoBitmap(
 let drawAllActionsGlobal: (ctx: CanvasRenderingContext2D, acts: DrawAction[], lrs: Layer[], _z: number) => void;
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProps>(function WhiteboardCanvas(
-  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onMoveCommit, onUpdateActions, onUpdateCommit, onSyncActions, onActionsChanged, clientId = 'self' },
+  { tool, color, fillColor, strokeWidth, opacity, fontSize, fontFamily, layers, activeLayerId, settings, onAddAction, onDeleteAction, actions, participants, brushStyle = 'marker', onToolChange, onCanvasInteract, onMoveSelected, onMoveCommit, onUpdateActions, onUpdateCommit, onSyncActions, onSyncSelected, onActionsChanged, clientId = 'self' },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1212,7 +1213,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       setGroupRotation(0);
       accumulatedRotRef.current = 0;
       origPointsRef.current = new Map();
-      onSyncActions?.();
+      onSyncSelected?.(selectedIds);
       return;
     }
 
@@ -1226,13 +1227,13 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasHandle, WhiteboardCanvasProp
       setIsResizing(false);
       setResizeHandle(null);
       setResizeStart(null);
-      onSyncActions?.();
+      onSyncSelected?.(selectedIds);
       return;
     }
 
     // SELECT: end drag
     if (tool === 'select') {
-      if (isDragging) { setIsDragging(false); setDragStart(null); onMoveCommit?.(); onActionsChanged?.(selectedIds); onSyncActions?.(); }
+      if (isDragging) { setIsDragging(false); setDragStart(null); onMoveCommit?.(); onActionsChanged?.(selectedIds); onSyncSelected?.(selectedIds); }
       if (isSelecting && selectionBox) {
         setIsSelecting(false);
         const selected: string[] = [];
