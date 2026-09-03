@@ -1,16 +1,22 @@
 // ============================================
-// Vercel Postgres veritabanı bağlantısı
+// Supabase PostgreSQL veritabanı bağlantısı
 // ============================================
 
 import { sql } from '@vercel/postgres';
 export { sql };
 
-const isProd = !!process.env.POSTGRES_URL;
-export const hasDb = !!process.env.POSTGRES_URL;
+// Supabase connection string - hardcoded for simplicity
+const SUPABASE_URL = 'postgresql://postgres.xcyjjmlkwihhmnmqrb:8%26oqO%25YsB4oJPC%24Rhn9gP@aws-0-eu-central-1.pooler.supabase.com:6543/postgres';
+
+// Override POSTGRES_URL if not set
+if (!process.env.POSTGRES_URL) {
+  process.env.POSTGRES_URL = SUPABASE_URL;
+}
+
+export const hasDb = true;
 
 // getPool export - store.ts icin gerekli (fallback)
 export function getPool() {
-  // @vercel/postgres kendi pool'unu yonetir, burasi sadece fallback
   return null as any;
 }
 
@@ -19,7 +25,6 @@ let schemaReady = false;
 
 export async function ensureSchema() {
   if (schemaReady) return;
-  if (!hasDb) return;
 
   try {
     await sql`
