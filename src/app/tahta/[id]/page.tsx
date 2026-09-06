@@ -120,21 +120,29 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
   const [broadcastBanner, setBroadcastBanner] = useState<string | null>(null);
 
   // ===== Nickname =====
+  const isGuestName = (name: string) => name.startsWith('Misafir_') || name === 'Misafir';
+
   useEffect(() => {
     const savedNick = localStorage.getItem('freebuff_nickname');
-    if (savedNick) {
+    if (savedNick && !isGuestName(savedNick)) {
       setNickname(savedNick);
       nicknameRef.current = savedNick;
       clientIdRef.current = savedNick; // nickname = userId
       setNicknameReady(true);
       setParticipants(prev => prev.map(p => p.id === 'self' ? { ...p, name: savedNick } : p));
     } else {
+      // Misafir ise veya isim kayitli degilse modal ac
+      if (savedNick && isGuestName(savedNick)) {
+        localStorage.removeItem('freebuff_nickname');
+      }
       setShowNicknameModal(true);
     }
   }, []);
 
   const handleNicknameSave = () => {
-    const name = nickname.trim() || generateGuestName();
+    let name = nickname.trim();
+    if (!name) return; // bos birakilamaz
+    if (isGuestName(name)) return; // Misafir olarak kaydedilemez
     setNickname(name);
     nicknameRef.current = name;
     clientIdRef.current = name; // nickname = userId
@@ -720,18 +728,19 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
           <div className="text-center mb-5">
             <span className="text-4xl block mb-3">👤</span>
             <h2 className="text-lg font-bold text-gray-900">Hoş Geldin!</h2>
-            <p className="text-sm text-gray-500 mt-1">Tahtaya katılmak için bir takma ad seç</p>
+            <p className="text-sm text-gray-500 mt-1">Tahtaya katılmak için bir isim seç</p>
           </div>
           <input
             type="text"
             value={nickname}
             onChange={e => setNickname(e.target.value)}
-            placeholder={generateGuestName()}
+            placeholder="Örn: Ahmet, Merve, Ali..."
             className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
             autoFocus
             onKeyDown={e => e.key === 'Enter' && handleNicknameSave()}
           />
-          <button onClick={handleNicknameSave} className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors">Devam Et →</button>
+          <button onClick={handleNicknameSave} disabled={!nickname.trim() || isGuestName(nickname.trim())} className={`w-full py-3 rounded-xl font-semibold transition-colors ${(!nickname.trim() || isGuestName(nickname.trim())) ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>Devam Et →</button>
+          {isGuestName(nickname.trim()) && <p className="text-xs text-red-500 text-center mt-2">⚠️ "Misafir" isimleri kullanılamaz, lütfen kendi ismini yaz</p>}
           <p className="text-[10px] text-gray-400 text-center mt-3">Takma adın bu cihazda kaydedilecek</p>
         </div>
       </div>
