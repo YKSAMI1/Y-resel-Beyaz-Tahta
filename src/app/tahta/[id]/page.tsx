@@ -527,20 +527,24 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ name, actions: actionsRef.current, createdBy: createdBy || nickname || 'unknown', isAuto: isAuto || false }),
       });
       if (res.ok) {
-        // VDS'ye yedekle
         const snapData = await res.json();
+        // VDS'ye yedekle
         fetch(`/api/whiteboard/${id}/snapshots-backup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            snapshotId: snapData.id,
+            snapshotId: snapData.snapshot?.id || snapData.id,
             name,
             actionsData: actionsRef.current,
             createdBy: createdBy || nickname || 'unknown',
             isAuto: isAuto || false,
           }),
         }).catch(() => {}); // VDS hatası ana işi engellemez
-        if (!isAuto) showToast('Snapshot kaydedildi!', 'success');
+        if (snapData.warning) {
+          showToast(snapData.warning, 'info');
+        } else if (!isAuto) {
+          showToast('Snapshot kaydedildi!', 'success');
+        }
       } else {
         if (!isAuto) showToast('Snapshot kaydedilemedi', 'error');
       }

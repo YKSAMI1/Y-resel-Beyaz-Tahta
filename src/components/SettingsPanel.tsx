@@ -121,7 +121,11 @@ export default function SettingsPanel({ settings, onUpdate, onClose, onDelete, o
           {onSaveSnapshot && (
             <div className="border-t border-gray-100 pt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-3">📸 Snapshot (Anlık Kayıt)</h4>
-              <p className="text-xs text-gray-400 mb-3">Kanusun şu anki halini kaydedin. Sorun yaşadığınızda geri dönebilirsiniz.</p>
+              <p className="text-xs text-gray-400 mb-2">Kanusun şu anki halini kaydedin. Sorun yaşadığınızda geri dönebilirsiniz.</p>
+              <div className="flex gap-3 text-[10px] text-gray-400 mb-3">
+                <span>👤 Senin: {userSnapshots.length}/5</span>
+                <span>🤖 Oto: {autoSnapshots.length}/5</span>
+              </div>
               <div className="flex gap-2 mb-3">
                 <input
                   type="text"
