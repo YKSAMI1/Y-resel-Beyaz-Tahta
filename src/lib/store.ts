@@ -87,6 +87,16 @@ class InMemoryStore {
     stored.deletedIds = stored.deletedIds.filter(d => d.id !== actionId);
   }
 
+  async getImageIds(id: string): Promise<string[]> {
+    const stored = this.whiteboards.get(id);
+    if (!stored) return [];
+    return [];
+  }
+
+  async getImage(id: string, imageId: string): Promise<string | null> {
+    return null;
+  }
+
   async updateSettings(id: string, settings: Partial<WhiteboardSettings>): Promise<Whiteboard | null> {
     const stored = this.whiteboards.get(id);
     if (!stored) return null;
@@ -325,32 +335,6 @@ class PostgresStore {
       const parsed = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       return parsed;
     });
-    // Gorselleri yukle — sadece ilk yuklemede (since=0) tum gorselleri indir,
-    // incremental poll'da (since>0) sadece yeni gorselleri indir
-    if (actions.length > 0 && since === 0) {
-      // Ilk yukleme: tum gorselleri indir
-      const imgRows = await sql`SELECT id, data FROM images WHERE whiteboard_id = ${id}`;
-      if (imgRows.rows.length > 0) {
-        const imgMap = new Map<string, string>();
-        for (const r of imgRows.rows) { imgMap.set(r.id, r.data); }
-        for (const action of actions) {
-          const imgData = imgMap.get(action.id + '_img');
-          if (imgData) { (action as any).imageSrc = imgData; }
-        }
-      }
-    } else if (actions.length > 0 && since > 0) {
-      // Incremental: sadece yeni gorselleri indir
-      const imgIds = actions.filter((a: any) => a.type === 'image').map((a: any) => a.id + '_img');
-      if (imgIds.length > 0) {
-        for (const imgId of imgIds) {
-          const imgRow = await sql`SELECT data FROM images WHERE id = ${imgId} AND whiteboard_id = ${id}`;
-          if (imgRow.rows.length > 0) {
-            const action = actions.find((a: any) => a.id + '_img' === imgId);
-            if (action) { (action as any).imageSrc = imgRow.rows[0].data; }
-          }
-        }
-      }
-    }
     return {
       actions,
       deletedIds: deletedResult.rows.map((r: any) => r.id),
@@ -367,6 +351,20 @@ class PostgresStore {
   async clearDeletedId(id: string, actionId: string): Promise<void> {
     await this.ensureReady();
     await sql`DELETE FROM deleted_ids WHERE id = ${actionId} AND whiteboard_id = ${id}`;
+  }
+
+  // Lazy loading icin: tum gorsel id'lerini don (data olmadan)
+  async getImageIds(id: string): Promise<string[]> {
+    await this.ensureReady();
+    const result = await sql`SELECT id FROM images WHERE whiteboard_id = ${id}`;
+    return result.rows.map((r: any) => r.id.replace('_img', ''));
+  }
+
+  // Tek bir gorseli getir
+  async getImage(id: string, imageId: string): Promise<string | null> {
+    await this.ensureReady();
+    const result = await sql`SELECT data FROM images WHERE id = ${imageId} AND whiteboard_id = ${id}`;
+    return result.rows.length > 0 ? result.rows[0].data : null;
   }
 
   async updateSettings(id: string, settings: Partial<WhiteboardSettings>): Promise<Whiteboard | null> {

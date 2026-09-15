@@ -167,20 +167,32 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
       const savedLayers = localStorage.getItem(`freeboard_layers_${id}`);
       if (savedLayers) setLayers(JSON.parse(savedLayers));
     } catch { /* ignore */ }
-    // Sunucudan tum veriyi yukle (gorseller dahil)
+    // Sunucudan verileri yukle — once cizimler (hizli), sonra gorseller (lazy)
     const loadAll = async () => {
       try {
         const pd = loadPendingDeletes();
         pendingDeletesRef.current = pd;
+        // 1) Cizimleri yukle (gorselsiz — ~2MB yerine ~15MB)
         const res = await fetch(`/api/whiteboard/${id}/actions?since=0`);
         if (res.ok) {
           const data = await res.json();
           if (data.actions && data.actions.length > 0) {
-            // Pending deletes'leri filtrele - silinen seyleri geri yukleme
             const filtered = pd.size > 0 ? data.actions.filter((a: DrawAction) => !pd.has(a.id)) : data.actions;
             setActions(filtered);
             const maxTs = Math.max(...data.actions.map((a: DrawAction) => a.timestamp));
             setSyncedTimestamp(maxTs);
+            // 2) Gorselleri arka planda lazy yukle
+            const imageIds = filtered.filter((a: any) => a.type === 'image').map((a: any) => a.id);
+            if (imageIds.length > 0) {
+              const imgRes = await fetch(`/api/whiteboard/${id}/images?ids=${imageIds.join(',')}`);
+              if (imgRes.ok) {
+                const imgData = await imgRes.json();
+                setActions(prev => prev.map(a => {
+                  const src = imgData.images?.[a.id];
+                  return src ? { ...a, imageSrc: src } : a;
+                }));
+              }
+            }
           }
         }
       } catch { /* will retry on next poll */ }
@@ -259,10 +271,19 @@ export default function WhiteboardPage({ params }: { params: Promise<{ id: strin
             });
             const maxTs = Math.max(...data.actions.map((a: DrawAction) => a.timestamp));
             setSyncedTimestamp(prev => Math.max(prev, maxTs));
+            // Yeni gorseller varsa lazy yukle
+            const newImages = data.actions.filter((a: any) => a.type === 'image' && !a.imageSrc).map((a: any) => a.id);
+            if (newImages.length > 0) {
+              fetch(`/api/whiteboard/${id}/images?ids=${newImages.join(',')}`).then(r => r.json()).then(imgData => {
+                if (imgData.images) {
+                  setActions(prev => prev.map(a => imgData.images[a.id] ? { ...a, imageSrc: imgData.images[a.id] } : a));
+                }
+              }).catch(() => {});
+            }
           }
         }
       } catch { /* network hatasi - bir sonraki poll'da tekrar dene */ }
-    }, 1000); // 1 saniye - daha hizli senkronizasyon
+    }, 5000); // 5 saniye - bandwidth tasarrufu icin
     return () => clearInterval(pollInterval);
   }, [id]);
 
