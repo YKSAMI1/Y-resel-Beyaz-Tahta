@@ -3,7 +3,7 @@
 // pg paketi ile doğrudan bağlantı
 // ============================================
 
-const SUPABASE_URL = 'postgresql://postgres.xcyjjkhmlkwihhmnmqrb:8%26oqO%25YsB4oJPC%24Rhn9gP@aws-0-eu-central-1.pooler.supabase.com:6543/postgres';
+const NEON_URL = 'postgresql://neondb_owner:npg_VIP6CWzYp7qo@ep-soft-glitter-b1xrxmsq-pooler.c-5.eu-central-1.aws.neon.tech/neondb?sslmode=require';
 
 export const hasDb = true;
 
@@ -15,7 +15,7 @@ function getPool() {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pg = require('pg');
     _pool = new pg.Pool({
-      connectionString: SUPABASE_URL,
+      connectionString: process.env.DATABASE_URL || NEON_URL,
       ssl: { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30000,
@@ -58,7 +58,7 @@ export async function ensureSchema() {
         created_at BIGINT NOT NULL,
         expires_at BIGINT,
         layers JSONB DEFAULT '[]',
-        blocked_users TEXT[] DEFAULT '{}'
+        blocked_users jsonb DEFAULT '[]'
       )`);
 
     await pool.query(`
@@ -143,7 +143,7 @@ export async function ensureSchema() {
       )`);
 
     schemaReady = true;
-    console.log('Supabase schema initialized successfully');
+    console.log('Neon schema initialized successfully');
   } catch (e) {
     console.error('Schema init hatasi:', e);
   }
